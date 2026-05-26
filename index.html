@@ -5941,7 +5941,7 @@ const svg = buildCapacityVsPlannedSvg({ title: 'Ocupação Consolidada - Ano', s
         ]),
 
         el('div', { class:'grid', style:'gap:8px;margin-top:auto' }, [
-          el('div', { class:'row', style:'justify-content:space-between' }, [el('div', { class:'tiny muted' }, ['Avanão da janela']), el('div', { class:'tiny mono' }, [pctText(p.windowPct)])]),
+          el('div', { class:'row', style:'justify-content:space-between' }, [el('div', { class:'tiny muted' }, ['Avanço da janela']), el('div', { class:'tiny mono' }, [pctText(p.windowPct)])]),
           progressBar(p.windowPct, 'Percentual da janela planejada já consumido'),
           el('div', { class:'row', style:'justify-content:space-between' }, [el('div', { class:'tiny muted' }, ['Execução real apontada']), el('div', { class:'tiny mono' }, [pctText(m.progressPct)])]),
           progressBar(m.progressPct, 'Percentual das horas planejadas já apontado como realizado')
