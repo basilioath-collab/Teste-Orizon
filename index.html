@@ -4185,9 +4185,34 @@ main{padding:14px;overflow-x:hidden}
       }
     };
     const respAllocList = el('div', { class:'respAllocList' });
+    const respAllocPick = el('select');
+    const respAllocPctEditor = el('input', { type:'number', min:'0', max:'100', step:'5' });
+    const respAllocEditor = el('div', { class:'row', style:'gap:8px;align-items:end;margin-top:8px;display:none' }, [
+      el('div', { class:'field', style:'min-width:220px;flex:1' }, [el('label', {}, ['Recurso para editar']), respAllocPick]),
+      el('div', { class:'field compact' }, [el('label', {}, ['% diário']), respAllocPctEditor]),
+    ]);
+    respAllocPick.addEventListener('change', () => {
+      const rid = String(respAllocPick.value || '');
+      respAllocPctEditor.value = String(respPctById.get(rid) ?? 100);
+    });
+    respAllocPctEditor.addEventListener('input', () => {
+      const rid = String(respAllocPick.value || '');
+      if (!rid) return;
+      respPctById.set(rid, Number(respAllocPctEditor.value || 0));
+      renderApontamentos();
+    });
     const renderRespChips = () => {
       respChips.innerHTML = '';
       respAllocList.innerHTML = '';
+      const ids = [...selectedRespIds];
+      respAllocEditor.style.display = ids.length >= 2 ? '' : 'none';
+      respAllocPick.innerHTML = '';
+      for (const rid of ids) respAllocPick.appendChild(el('option', { value: rid }, [getRespName(rid)]));
+      if (ids.length >= 2) {
+        const current = ids.includes(respAllocPick.value) ? respAllocPick.value : ids[0];
+        respAllocPick.value = current;
+        respAllocPctEditor.value = String(respPctById.get(current) ?? 100);
+      }
       for (const rid of selectedRespIds) {
         const chip = el('span', { class:'multiSelectChip', 'data-rid': rid }, [
           el('span', {}, [getRespName(rid)]),
@@ -4202,7 +4227,7 @@ main{padding:14px;overflow-x:hidden}
           syncMapeada();
         });
         respChips.appendChild(chip);
-        const pct = el('input', { type:'number', min:'0', max:'100', step:'5', value:String(respPctById.get(rid) ?? 100) });
+        const pct = el('input', { type:'number', min:'0', max:'100', step:'5', value:String(respPctById.get(rid) ?? 100), disabled: ids.length >= 2 ? '' : null });
         pct.addEventListener('input', () => { respPctById.set(rid, Number(pct.value || 0)); renderApontamentos(); });
         respAllocList.appendChild(el('div', { class:'respAllocRow' }, [
           el('div', { class:'respAllocName', title:getRespName(rid) }, [getRespName(rid)]),
@@ -4612,7 +4637,7 @@ main{padding:14px;overflow-x:hidden}
       el('div', { class:'row' }, [
         el('div', { class:'field', style:'flex:1' }, [el('label', {}, ['Responsável']), responsavel]),
         el('div', { class:'field', style:'flex:1' }, [el('label', {}, ['Status']), status]),
-        el('div', { class:'field', style:'min-width:280px' }, [el('label', {}, ['% diário por responsável']), respAllocList]),
+        el('div', { class:'field', style:'min-width:280px' }, [el('label', {}, ['% diário por responsável']), respAllocEditor, respAllocList]),
       ]),
       el('div', { class:'row' }, [
         el('div', { class:'field' }, [el('label', {}, ['Início']), ini]),
@@ -6369,10 +6394,34 @@ const svg = buildCapacityVsPlannedSvg({ title: 'Ocupação Consolidada - Ano', s
       };
 
       const respAllocList = el('div', { class:'respAllocList' });
+      const respAllocPick = el('select');
+      const respAllocPctEditor = el('input', { type:'number', min:'0', max:'100', step:'5' });
+      const respAllocEditor = el('div', { class:'row', style:'gap:8px;align-items:end;margin-top:8px;display:none' }, [
+        el('div', { class:'field', style:'min-width:220px;flex:1' }, [el('label', {}, ['Recurso para editar']), respAllocPick]),
+        el('div', { class:'field compact' }, [el('label', {}, ['% diário']), respAllocPctEditor]),
+      ]);
+      respAllocPick.addEventListener('change', () => {
+        const rid = String(respAllocPick.value || '');
+        respAllocPctEditor.value = String(respPctById.get(rid) ?? 100);
+      });
+      respAllocPctEditor.addEventListener('input', () => {
+        const rid = String(respAllocPick.value || '');
+        if (!rid) return;
+        respPctById.set(rid, Number(respAllocPctEditor.value || 0));
+      });
       const renderRespChips = () => {
         const keepScrollLeft = respBox ? respBox.scrollLeft : 0;
         respChips.innerHTML = '';
         respAllocList.innerHTML = '';
+        const ids = [...selectedRespIds];
+        respAllocEditor.style.display = ids.length >= 2 ? '' : 'none';
+        respAllocPick.innerHTML = '';
+        for (const rid of ids) respAllocPick.appendChild(el('option', { value: rid }, [getRespName(rid)]));
+        if (ids.length >= 2) {
+          const current = ids.includes(respAllocPick.value) ? respAllocPick.value : ids[0];
+          respAllocPick.value = current;
+          respAllocPctEditor.value = String(respPctById.get(current) ?? 100);
+        }
         for (const rid of selectedRespIds) {
           const chip = el('span', { class:'multiSelectChip', 'data-rid': rid }, [
             el('span', {}, [getRespName(rid)]),
@@ -6389,7 +6438,7 @@ const svg = buildCapacityVsPlannedSvg({ title: 'Ocupação Consolidada - Ano', s
             ev.stopPropagation();
           });
           respChips.appendChild(chip);
-          const pct = el('input', { type:'number', min:'0', max:'100', step:'5', value:String(respPctById.get(rid) ?? 100) });
+          const pct = el('input', { type:'number', min:'0', max:'100', step:'5', value:String(respPctById.get(rid) ?? 100), disabled: ids.length >= 2 ? '' : null });
           pct.addEventListener('input', () => { respPctById.set(rid, Number(pct.value || 0)); });
           respAllocList.appendChild(el('div', { class:'respAllocRow' }, [
             el('div', { class:'respAllocName', title:getRespName(rid) }, [getRespName(rid)]),
@@ -6569,7 +6618,7 @@ const svg = buildCapacityVsPlannedSvg({ title: 'Ocupação Consolidada - Ano', s
             el('div', { class:'field' }, [el('label', {}, ['Prédio']), predio]),
             el('div', { class:'field' }, [el('label', {}, ['Focal']), focal]),
             el('div', { class:'field demandRespField' }, [el('label', {}, ['Responsável(is)']), responsavel]),
-            el('div', { class:'field', style:'min-width:290px' }, [el('label', {}, ['% diário por responsável']), respAllocList]),
+            el('div', { class:'field', style:'min-width:290px' }, [el('label', {}, ['% diário por responsável']), respAllocEditor, respAllocList]),
             el('div', { class:'field' }, [el('label', {}, ['Prioridade']), prioridade]),
             el('div', { class:'field' }, [el('label', {}, ['Status']), status]),
           ]),
