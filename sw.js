@@ -1,6 +1,6 @@
-const ORIZON_CACHE = 'orizon-static-v2';
+const ORIZON_CACHE = 'orizon-static-v3';
 const ORIZON_ASSETS = [
-  './orizon.html',
+  './index.html',
   './manifest.webmanifest',
   './icons/icon-192.png',
   './icons/icon-512.png'
@@ -10,7 +10,6 @@ self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(ORIZON_CACHE)
       .then((cache) => cache.addAll(ORIZON_ASSETS))
-      .catch(() => undefined)
   );
   self.skipWaiting();
 });
@@ -34,6 +33,11 @@ self.addEventListener('fetch', (event) => {
         caches.open(ORIZON_CACHE).then((cache) => cache.put(event.request, copy));
         return response;
       })
-      .catch(() => caches.match(event.request))
+      .catch(async () => {
+        const cached = await caches.match(event.request);
+        if (cached) return cached;
+        if (event.request.mode === 'navigate') return caches.match('./index.html');
+        return Response.error();
+      })
   );
 });
