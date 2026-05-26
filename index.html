@@ -916,6 +916,7 @@ main{padding:14px;overflow-x:hidden}
   const DB_BASELINE_KEY = 'capview_db_baseline';
   const APP_SCHEMA_VERSION = '0.2.3-demand-metrics';
   const HOURS_PER_DAY = 9; // regra fixa: 9h/dia para todos os recursos
+  const HOURS_PER_DAY_THIRD = 8; // Terceiro: 8h/dia
   const PAGE_SIZE = 10; // itens por página (Demandas e Recursos)
   const CALENDAR_PAGE_SIZE = 10; // itens por página (Bloqueios e Feriados)
   const DASH_PER_RESOURCE_PAGE_SIZE = 5; // Dashboard: Por Recurso (mês)
@@ -1096,6 +1097,11 @@ main{padding:14px;overflow-x:hidden}
     return `${idPrefix()}::${kind}::${u}`;
   };
   const isWeekend = (d) => { const day = d.getDay(); return day === 0 || day === 6; };
+  const getResourceHoursPerDay = (resource) => {
+    if (!resource) return HOURS_PER_DAY;
+    if (String(resource.tipo || '').trim() === 'Terceiro') return HOURS_PER_DAY_THIRD;
+    return HOURS_PER_DAY;
+  };
   const formatDate = (date) => {
     const d = (date instanceof Date) ? date : new Date(date);
     const z = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
@@ -3090,7 +3096,7 @@ main{padding:14px;overflow-x:hidden}
       id: generateId('resource'),
       nome: String(userName || '').trim() || 'Usuário',
       tipo: 'Interno',
-      horas_dia: HOURS_PER_DAY,
+      horas_dia: (type.value === 'Terceiro' ? HOURS_PER_DAY_THIRD : HOURS_PER_DAY),
       ativo: true,
       owner_user_id: uid,
       auto_created_from_user: true,
@@ -3862,7 +3868,8 @@ main{padding:14px;overflow-x:hidden}
     baseCapacityForDay(resourceId, dateObj) {
       const reason = this.nonWorkingReasonForDay(resourceId, dateObj);
       if (reason) return 0;
-      return HOURS_PER_DAY;
+      const res = (state.resources || []).find(r => r.id === resourceId);
+      return getResourceHoursPerDay(res);
     },
 
     dailyCapacityWithOvertime(resourceId, dateObj) {
@@ -4206,6 +4213,7 @@ main{padding:14px;overflow-x:hidden}
       respAllocList.innerHTML = '';
       const ids = [...selectedRespIds];
       respAllocEditor.style.display = ids.length >= 2 ? '' : 'none';
+      respAllocList.style.display = ids.length >= 2 ? 'none' : '';
       respAllocPick.innerHTML = '';
       for (const rid of ids) respAllocPick.appendChild(el('option', { value: rid }, [getRespName(rid)]));
       if (ids.length >= 2) {
@@ -4971,7 +4979,7 @@ main{padding:14px;overflow-x:hidden}
     tipo.value = (resource.tipo === 'Terceiro') ? 'Terceiro' : 'Interno';
 
     // Regra fixa do app (9h/dia): mostramos s? como informativo
-    const horasInfo = el('input', { value: String(HOURS_PER_DAY), disabled:'', title:'Regra fixa do app (9h/dia)' });
+    const horasInfo = el('input', { value: String(getResourceHoursPerDay(resource)), disabled:'', title:'Interno: 9h/dia | Terceiro: 8h/dia' });
 
     const ativo = el('select', {}, [
       el('option', { value:'true' }, ['Ativo']),
@@ -4995,6 +5003,7 @@ main{padding:14px;overflow-x:hidden}
       const isThird = (String(tipo.value).trim() === 'Terceiro');
       vigRow.style.display = isThird ? '' : 'none';
       vigHint.style.display = isThird ? '' : 'none';
+      horasInfo.value = String(isThird ? HOURS_PER_DAY_THIRD : HOURS_PER_DAY);
       if (!isThird) {
         vigIni.value = '';
         vigFim.value = '';
@@ -5016,7 +5025,7 @@ main{padding:14px;overflow-x:hidden}
         ...resource,
         nome: (nome.value || '').trim() || resource.nome,
         tipo: (String(tipo.value).trim() === 'Terceiro') ? 'Terceiro' : 'Interno',
-        horas_dia: HOURS_PER_DAY,
+        horas_dia: ((String(tipo.value).trim() === 'Terceiro') ? HOURS_PER_DAY_THIRD : HOURS_PER_DAY),
         ativo: (ativo.value === 'true'),
         vigencia_inicio: (String(tipo.value).trim() === 'Terceiro' ? (vigIni.value || undefined) : undefined),
         vigencia_fim: (String(tipo.value).trim() === 'Terceiro' ? (vigFim.value || undefined) : undefined),
@@ -6207,7 +6216,7 @@ const svg = buildCapacityVsPlannedSvg({ title: 'Ocupação Consolidada - Ano', s
         el('option', { value:'Interno' }, ['Interno']),
         el('option', { value:'Terceiro' }, ['Terceiro']),
       ]);
-      const hours = el('input', { type:'number', min:'0', step:'0.5', value:String(HOURS_PER_DAY), disabled:'true', title:'Regra fixa do app: 9h/dia' });
+      const hours = el('input', { type:'number', min:'0', step:'0.5', value:String(HOURS_PER_DAY), disabled:'true', title:'Interno: 9h/dia | Terceiro: 8h/dia' });
       const active = el('select', {}, [
         el('option', { value:'true' }, ['Ativo']),
         el('option', { value:'false' }, ['Inativo']),
@@ -6221,6 +6230,7 @@ const svg = buildCapacityVsPlannedSvg({ title: 'Ocupação Consolidada - Ano', s
       ]);
       const updateThirdVisibility = () => {
         thirdWrap.style.display = (type.value === 'Terceiro') ? '' : 'none';
+        hours.value = String(type.value === 'Terceiro' ? HOURS_PER_DAY_THIRD : HOURS_PER_DAY);
       };
       type.addEventListener('change', updateThirdVisibility);
       updateThirdVisibility();
@@ -6232,7 +6242,7 @@ const svg = buildCapacityVsPlannedSvg({ title: 'Ocupação Consolidada - Ano', s
           id: generateId(),
           nome,
           tipo: type.value,
-          horas_dia: HOURS_PER_DAY,
+          horas_dia: (type.value === 'Terceiro' ? HOURS_PER_DAY_THIRD : HOURS_PER_DAY),
           ativo: active.value === 'true',
           vigencia_inicio: vigIni.value || undefined,
           vigencia_fim: vigFim.value || undefined,
@@ -6415,6 +6425,7 @@ const svg = buildCapacityVsPlannedSvg({ title: 'Ocupação Consolidada - Ano', s
         respAllocList.innerHTML = '';
         const ids = [...selectedRespIds];
         respAllocEditor.style.display = ids.length >= 2 ? '' : 'none';
+        respAllocList.style.display = ids.length >= 2 ? 'none' : '';
         respAllocPick.innerHTML = '';
         for (const rid of ids) respAllocPick.appendChild(el('option', { value: rid }, [getRespName(rid)]));
         if (ids.length >= 2) {
