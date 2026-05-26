@@ -8437,13 +8437,8 @@ return el('div', { class:'grid' }, [
         await navigator.clipboard.writeText(dbPathValue);
         toast('Caminho copiado.');
       } catch {
-        const tmp = document.createElement('textarea');
-        tmp.value = dbPathValue;
-        document.body.appendChild(tmp);
-        tmp.select();
-        document.execCommand('copy');
-        tmp.remove();
-        toast('Caminho copiado.');
+        const copied = fallbackCopyText(dbPathValue);
+        toast(copied ? 'Caminho copiado.' : 'Não foi possível copiar o caminho.');
       }
     };
 
@@ -8933,6 +8928,19 @@ return el('div', { class:'grid' }, [
       console.error(e);
       toast('Falha ao exportar CSV.');
     }
+  };
+  const fallbackCopyText = (value) => {
+    const tmp = document.createElement('textarea');
+    tmp.value = String(value || '');
+    tmp.setAttribute('readonly', '');
+    tmp.style.position = 'fixed';
+    tmp.style.top = '-1000px';
+    document.body.appendChild(tmp);
+    tmp.select();
+    tmp.setSelectionRange(0, tmp.value.length);
+    const ok = document.execCommand('copy');
+    tmp.remove();
+    return ok;
   };
 
   const excelXmlEscape = (v) => String(v ?? '')
@@ -9493,11 +9501,8 @@ const syncPreview = () => {
         toast('ID copiado.');
       } catch {
         // fallback
-        const tmp = document.createElement('textarea');
-        tmp.value = val; document.body.appendChild(tmp);
-        tmp.select(); document.execCommand('copy');
-        tmp.remove();
-        toast('ID copiado.');
+        const copied = fallbackCopyText(val);
+        toast(copied ? 'ID copiado.' : 'Não foi possível copiar o ID.');
       }
     });
 const tryClose = () => {
@@ -9549,12 +9554,15 @@ const tryClose = () => {
 
   // Avatar always opens identity modal
   const avatarClickHandler__capview = () => openUserModal(true);
-  qs('#avatar').addEventListener('click', avatarClickHandler__capview);
-  qs('#avatar').addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault();
-    }
-  });
+  const avatarEl = qs('#avatar');
+  if (avatarEl) {
+    avatarEl.addEventListener('click', avatarClickHandler__capview);
+    avatarEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+      }
+    });
+  }
 
 const commitHeaderUserName = (input) => {
   if (!input) return;
