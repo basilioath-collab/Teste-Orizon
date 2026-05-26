@@ -512,6 +512,41 @@ main{padding:14px;overflow-x:hidden}
   min-width:140px !important;
   flex:1 0 140px;
 }
+.respAllocList{
+  display:grid;
+  gap:8px;
+  margin-top:8px;
+}
+.respAllocRow{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto;
+  gap:10px;
+  align-items:end;
+  padding:8px 0;
+  border-bottom:1px solid rgba(148,163,184,.2);
+}
+.respAllocName{
+  font-size:12px;
+  color:var(--text);
+  font-weight:800;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.respAllocPct{
+  display:flex;
+  flex-direction:column;
+  gap:4px;
+}
+.respAllocPct input{
+  width:88px;
+  min-width:88px;
+  text-align:right;
+}
+@media (max-width:700px){
+  .respAllocRow{grid-template-columns:1fr}
+  .respAllocPct input{width:100%;min-width:0}
+}
 @media (max-width: 700px){
   #demandsFormCard .field,
   #demandsFormCard .demandRespField,
@@ -4149,7 +4184,7 @@ main{padding:14px;overflow-x:hidden}
         respMenu.appendChild(el('button', { type:'button', class:'multiSelectOption', 'data-rid': r.id }, [`${r.nome}${r.tipo==='Terceiro' ? ' (Terceiro)' : ''}`]));
       }
     };
-    const respAllocList = el('div', { class:'grid', style:'gap:8px;margin-top:8px' });
+    const respAllocList = el('div', { class:'respAllocList' });
     const renderRespChips = () => {
       respChips.innerHTML = '';
       respAllocList.innerHTML = '';
@@ -4167,11 +4202,11 @@ main{padding:14px;overflow-x:hidden}
           syncMapeada();
         });
         respChips.appendChild(chip);
-        const pct = el('input', { type:'number', min:'0', step:'5', value:String(respPctById.get(rid) ?? 100), style:'max-width:110px' });
+        const pct = el('input', { type:'number', min:'0', max:'100', step:'5', value:String(respPctById.get(rid) ?? 100) });
         pct.addEventListener('input', () => { respPctById.set(rid, Number(pct.value || 0)); renderApontamentos(); });
-        respAllocList.appendChild(el('div', { class:'row', style:'justify-content:space-between' }, [
-          el('div', { class:'tiny' }, [getRespName(rid)]),
-          el('div', { class:'field compact' }, [el('label', {}, ['% diário']), pct]),
+        respAllocList.appendChild(el('div', { class:'respAllocRow' }, [
+          el('div', { class:'respAllocName', title:getRespName(rid) }, [getRespName(rid)]),
+          el('div', { class:'respAllocPct' }, [el('label', {}, ['% diário']), pct]),
         ]));
       }
     };
@@ -6333,7 +6368,7 @@ const svg = buildCapacityVsPlannedSvg({ title: 'Ocupação Consolidada - Ano', s
         if (selectedRespIds.size === 0) { status.value = 'Mapeada'; syncMapeada(); }
       };
 
-      const respAllocList = el('div', { class:'grid', style:'gap:8px;margin-top:8px' });
+      const respAllocList = el('div', { class:'respAllocList' });
       const renderRespChips = () => {
         const keepScrollLeft = respBox ? respBox.scrollLeft : 0;
         respChips.innerHTML = '';
@@ -6354,11 +6389,11 @@ const svg = buildCapacityVsPlannedSvg({ title: 'Ocupação Consolidada - Ano', s
             ev.stopPropagation();
           });
           respChips.appendChild(chip);
-          const pct = el('input', { type:'number', min:'0', step:'5', value:String(respPctById.get(rid) ?? 100), style:'max-width:110px' });
+          const pct = el('input', { type:'number', min:'0', max:'100', step:'5', value:String(respPctById.get(rid) ?? 100) });
           pct.addEventListener('input', () => { respPctById.set(rid, Number(pct.value || 0)); });
-          respAllocList.appendChild(el('div', { class:'row', style:'justify-content:space-between' }, [
-            el('div', { class:'tiny' }, [getRespName(rid)]),
-            el('div', { class:'field compact' }, [el('label', {}, ['% diário']), pct]),
+          respAllocList.appendChild(el('div', { class:'respAllocRow' }, [
+            el('div', { class:'respAllocName', title:getRespName(rid) }, [getRespName(rid)]),
+            el('div', { class:'respAllocPct' }, [el('label', {}, ['% diário']), pct]),
           ]));
         }
         restoreRespBoxScroll(keepScrollLeft, false);
