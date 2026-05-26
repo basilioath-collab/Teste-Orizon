@@ -2960,7 +2960,29 @@ main{padding:14px;overflow-x:hidden}
     const u = ensureUserIdentity(name);
     userName = u.displayName;
     userId = u.userId;
+    ensureUserAsResource();
     updateAvatar();
+  };
+
+  const ensureUserAsResource = () => {
+    if (!hasUser()) return false;
+    const uid = String(userId || '').trim();
+    if (!uid || uid.startsWith('sessao-local__')) return false;
+    const alreadyExists = (state.resources || []).some((r) => {
+      const ownerId = String(r?.owner_user_id || r?.ownerUserId || '').trim();
+      return ownerId === uid;
+    });
+    if (alreadyExists) return false;
+    dispatch('ADD_RESOURCE', {
+      id: generateId('resource'),
+      nome: String(userName || '').trim() || 'Usuário',
+      tipo: 'Interno',
+      horas_dia: HOURS_PER_DAY,
+      ativo: true,
+      owner_user_id: uid,
+      auto_created_from_user: true,
+    });
+    return true;
   };
 
   // ----------------------
@@ -9534,10 +9556,8 @@ const tryClose = () => {
       }
       const nm = String(nameInput?.value||'').trim();
       if (!nm) { toast('Informe seu nome completo.'); return; }
-      const u = ensureUserIdentity(nm); // persists to localStorage
-      userName = u.displayName; userId = u.userId;
+      setUser(nm);
       const hdr = qs('#userName'); if (hdr) hdr.value = userName;
-      updateAvatar();
       closeDialog(dlg);
       document.body.classList.remove('user-modal-open');
       toast('Usuário definido com sucesso.');
@@ -9558,6 +9578,7 @@ const tryClose = () => {
       const u = loadUserIdentity();
       userName = u.displayName;
       userId = u.userId;
+      ensureUserAsResource();
       updateAvatar();
     }
   });
@@ -9599,6 +9620,7 @@ qs('#userName').addEventListener('keydown', (e) => {
   }
 });
   // Initialize user UI (after helpers exist)
+  ensureUserAsResource();
   updateAvatar();
   if (!hasUser()) { setTimeout(() => openUserModal(true), 60); }
 
