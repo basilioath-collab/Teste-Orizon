@@ -1111,12 +1111,83 @@ main{padding:14px;overflow-x:hidden}
   });
 
 
+  const normalizeDemandAllocations = (demand) => {
+    const out = [];
+    const seen = new Set();
+    const add = (resourceId, pctRaw) => {
+      const rid = String(resourceId || '').trim();
+      if (!rid || seen.has(rid)) return;
+      const pctN = Number(pctRaw ?? demand?.percentual_diario ?? 0);
+      out.push({ resourceId: rid, percentual_diario: Number.isFinite(pctN) ? pctN : 0 });
+      seen.add(rid);
+    };
+    if (Array.isArray(demand?.allocations)) {
+      for (const a of demand.allocations) add(a?.resourceId || a?.responsavel_id, a?.percentual_diario);
+    }
+    add(demand?.responsavel_id || demand?.resourceId, demand?.percentual_diario);
+    return out;
+  };
+
+  const normalizeDemandsV02 = (arr) => {
+    const inList = Array.isArray(arr) ? arr : [];
+    const grouped = new Map();
+    const normTxt = (v='') => String(v || '')
+      .normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+      .trim().toLowerCase().replace(/\s+/g, ' ');
+    const normStatus = (v='') => {
+      const raw = String(v || '').trim().toLowerCase();
+      if (!raw) return 'Mapeada';
+      if (raw === 'atrasada') return 'Atrasada';
+      if (raw === 'concluída' || raw === 'concluida') return 'Concluída';
+      if (raw === 'em andamento') return 'Em andamento';
+      if (raw === 'mapeada') return 'Mapeada';
+      if (raw === 'congelada') return 'Congelada';
+      return 'Mapeada';
+    };
+    const makeKey = (d) => [
+      String(d?.logical_group_id || '').trim(),
+      normTxt(d?.titulo),
+      normTxt(d?.predio),
+      normTxt(d?.focal),
+      String(d?.data_inicio || ''),
+      String(d?.data_fim || ''),
+      normStatus(d?.status || 'Mapeada'),
+      normTxt(d?.prioridade),
+      normTxt(d?.observacoes),
+    ].join('|');
+    for (const raw of inList) {
+      if (!raw || typeof raw !== 'object') continue;
+      const d = { ...raw };
+      const key = makeKey(d);
+      const existing = grouped.get(key);
+      const allocs = normalizeDemandAllocations(d);
+      if (!existing) {
+        const firstRid = allocs[0]?.resourceId || String(d.responsavel_id || d.resourceId || '').trim();
+        grouped.set(key, {
+          ...d,
+          responsavel_id: firstRid,
+          allocations: allocs,
+        });
+        continue;
+      }
+      const seen = new Set((existing.allocations || []).map(a => String(a.resourceId || '').trim()).filter(Boolean));
+      for (const a of allocs) {
+        const rid = String(a.resourceId || '').trim();
+        if (!rid || seen.has(rid)) continue;
+        existing.allocations.push({ resourceId: rid, percentual_diario: Number(a.percentual_diario || 0) });
+        seen.add(rid);
+      }
+      if (!existing.responsavel_id && existing.allocations[0]?.resourceId) existing.responsavel_id = existing.allocations[0].resourceId;
+    }
+    return [...grouped.values()];
+  };
+
   const normalizeImportedState = (obj) => ({
     ...defaultState(),
     ...(obj && typeof obj === 'object' ? obj : {}),
-    schemaVersion: String(obj?.schemaVersion || obj?.meta?.schemaVersion || APP_SCHEMA_VERSION),
+    schemaVersion: '0.2',
     resources: Array.isArray(obj?.resources) ? obj.resources : [],
-    demands: Array.isArray(obj?.demands) ? obj.demands : [],
+    demands: normalizeDemandsV02(obj?.demands),
     blockings: Array.isArray(obj?.blockings) ? obj.blockings : [],
     holidays: Array.isArray(obj?.holidays) ? obj.holidays : [],
     reprogrammings: Array.isArray(obj?.reprogrammings) ? obj.reprogrammings : [],
@@ -1812,10 +1883,12 @@ main{padding:14px;overflow-x:hidden}
       if (tq && !String(d.titulo||'').toLowerCase().includes(tq)) return false;
 
       if (rid) {
+        const allocs = demandAllocations(d);
         if (rid === '__NONE__') {
-          if ((d.responsavel_id||'').trim()) return false;
+          if (allocs.length > 0 || (d.responsavel_id||'').trim()) return false;
         } else {
-          if ((d.responsavel_id||'') !== rid) return false;
+          const match = allocs.some(a => String(a.resourceId || '') === rid);
+          if (!match) return false;
         }
       }
 
@@ -2960,7 +3033,34 @@ main{padding:14px;overflow-x:hidden}
     const u = ensureUserIdentity(name);
     userName = u.displayName;
     userId = u.userId;
+    ensureUserAsResource();
     updateAvatar();
+  };
+
+  const demandAllocations = (demand) => {
+    const allocs = normalizeDemandAllocations(demand);
+    return allocs.length ? allocs : [];
+  };
+
+  const ensureUserAsResource = () => {
+    if (!hasUser()) return false;
+    const uid = String(userId || '').trim();
+    if (!uid || uid.startsWith('sessao-local__')) return false;
+    const alreadyExists = (state.resources || []).some((r) => {
+      const ownerId = String(r?.owner_user_id || r?.ownerUserId || '').trim();
+      return ownerId === uid;
+    });
+    if (alreadyExists) return false;
+    dispatch('ADD_RESOURCE', {
+      id: generateId('resource'),
+      nome: String(userName || '').trim() || 'Usuário',
+      tipo: 'Interno',
+      horas_dia: HOURS_PER_DAY,
+      ativo: true,
+      owner_user_id: uid,
+      auto_created_from_user: true,
+    });
+    return true;
   };
 
   // ----------------------
@@ -3748,13 +3848,13 @@ main{padding:14px;overflow-x:hidden}
 
       let total = 0;
       for (const dem of (state.demands || [])) {
-        if (dem.responsavel_id === resourceId) {
-          const st = effectiveStatus(dem);
-          if (!STATUS_COUNTS_IN_ALLOCATION.has(st)) continue;
-          if (dateStr >= dem.data_inicio && dateStr <= dem.data_fim) {
-            total += Number(dem.percentual_diario || 0);
-          }
-        }
+        const st = effectiveStatus(dem);
+        if (!STATUS_COUNTS_IN_ALLOCATION.has(st)) continue;
+        if (!(dateStr >= dem.data_inicio && dateStr <= dem.data_fim)) continue;
+        const allocPct = demandAllocations(dem)
+          .filter(a => String(a.resourceId || '') === String(resourceId || ''))
+          .reduce((acc, a) => acc + Number(a.percentual_diario || 0), 0);
+        total += allocPct;
       }
       return total;
     },
@@ -3822,7 +3922,8 @@ main{padding:14px;overflow-x:hidden}
   // ----------------------
   const demandsForResourceOnDate = (resourceId, dateStr) => {
     return (state.demands||[]).filter(d => {
-      if ((d.responsavel_id||'') !== resourceId) return false;
+      const hasResource = demandAllocations(d).some(a => String(a.resourceId || '') === String(resourceId || ''));
+      if (!hasResource) return false;
       return dateStr >= d.data_inicio && dateStr <= d.data_fim;
     });
   };
@@ -4011,7 +4112,17 @@ main{padding:14px;overflow-x:hidden}
     const focal = el('input', { value: demand.focal || '', placeholder:'Ex: Fulano (Focal)' });
 
     const selectedRespIds = new Set();
-    if (demand.responsavel_id) selectedRespIds.add(demand.responsavel_id);
+    const respPctById = new Map();
+    for (const a of demandAllocations(demand)) {
+      const rid = String(a.resourceId || '').trim();
+      if (!rid) continue;
+      selectedRespIds.add(rid);
+      respPctById.set(rid, Number(a.percentual_diario ?? demand.percentual_diario ?? 100));
+    }
+    if (!selectedRespIds.size && demand.responsavel_id) {
+      selectedRespIds.add(demand.responsavel_id);
+      respPctById.set(demand.responsavel_id, Number(demand.percentual_diario ?? 100));
+    }
     const respSearch = el('input', { class:'multiSelectInput', placeholder:'Digite o nome do responsável...' });
     const respChips = el('div', { style:'display:contents' });
     const respMenu = el('div', { class:'multiSelectMenu' });
@@ -4038,8 +4149,10 @@ main{padding:14px;overflow-x:hidden}
         respMenu.appendChild(el('button', { type:'button', class:'multiSelectOption', 'data-rid': r.id }, [`${r.nome}${r.tipo==='Terceiro' ? ' (Terceiro)' : ''}`]));
       }
     };
+    const respAllocList = el('div', { class:'grid', style:'gap:8px;margin-top:8px' });
     const renderRespChips = () => {
       respChips.innerHTML = '';
+      respAllocList.innerHTML = '';
       for (const rid of selectedRespIds) {
         const chip = el('span', { class:'multiSelectChip', 'data-rid': rid }, [
           el('span', {}, [getRespName(rid)]),
@@ -4049,16 +4162,24 @@ main{padding:14px;overflow-x:hidden}
           ev.preventDefault();
           ev.stopPropagation();
           selectedRespIds.delete(rid);
+          respPctById.delete(rid);
           if (!selectedRespIds.size) status.value = 'Mapeada';
           syncMapeada();
         });
         respChips.appendChild(chip);
+        const pct = el('input', { type:'number', min:'0', step:'5', value:String(respPctById.get(rid) ?? 100), style:'max-width:110px' });
+        pct.addEventListener('input', () => { respPctById.set(rid, Number(pct.value || 0)); renderApontamentos(); });
+        respAllocList.appendChild(el('div', { class:'row', style:'justify-content:space-between' }, [
+          el('div', { class:'tiny' }, [getRespName(rid)]),
+          el('div', { class:'field compact' }, [el('label', {}, ['% diário']), pct]),
+        ]));
       }
     };
     const openRespMenu = () => { responsavel.classList.add('open'); renderRespOptions(); };
     const addResponsavelChip = (rid) => {
       if (!rid || selectedRespIds.has(rid)) return;
       selectedRespIds.add(rid);
+      if (!respPctById.has(rid)) respPctById.set(rid, 100);
       respSearch.value = '';
       if (normalizeStatus(status.value) === 'Mapeada') status.value = 'Em andamento';
       syncMapeada();
@@ -4089,7 +4210,6 @@ main{padding:14px;overflow-x:hidden}
 
     const ini = el('input', { type:'date', value: demand.data_inicio || '' });
     const fim = el('input', { type:'date', value: demand.data_fim || '' });
-    const perc = el('input', { type:'number', min:'0', step:'5', value: String(demand.percentual_diario ?? 100) });
     const prioridade = el('select', {}, [
       el('option', { value:'Baixa' }, ['Baixa']),
       el('option', { value:'Média' }, ['Média']),
@@ -4161,12 +4281,16 @@ main{padding:14px;overflow-x:hidden}
         return el('span', { style:`display:inline-flex;align-items:center;border:1px solid ${c.border};background:${c.bg};color:${c.fg};border-radius:999px;padding:3px 9px;font-size:11px;font-weight:900;line-height:1;white-space:nowrap` }, [etapa || 'Outro']);
       };
 
+      const allocationsForMetrics = (normalizeStatus(status.value) === 'Mapeada')
+        ? []
+        : selectedResponsaveis().map(rid => ({ resourceId: rid, percentual_diario: Number(respPctById.get(rid) ?? 100) }));
       const demandForMetrics = {
         ...demand,
         data_inicio: String(ini.value || demand.data_inicio || '').trim(),
         data_fim: String(fim.value || demand.data_fim || '').trim(),
-        percentual_diario: Number(perc.value || demand.percentual_diario || 0),
-        responsavel_id: normalizeStatus(status.value) === 'Mapeada' ? '' : String(selectedResponsaveis()[0] || demand.responsavel_id || '').trim(),
+        percentual_diario: Number(allocationsForMetrics[0]?.percentual_diario ?? demand.percentual_diario ?? 0),
+        allocations: allocationsForMetrics,
+        responsavel_id: normalizeStatus(status.value) === 'Mapeada' ? '' : String(allocationsForMetrics[0]?.resourceId || demand.responsavel_id || '').trim(),
         status: normalizeStatus(status.value || demand.status)
       };
       const execMetrics = demandExecutionMetrics(demandForMetrics, apontamentos);
@@ -4337,19 +4461,31 @@ main{padding:14px;overflow-x:hidden}
       aptList
     ]);
 
-    const syncMapeada = () => {
-      const st = normalizeStatus(status.value);
-      if (st === 'Mapeada') {
-        selectedRespIds.clear();
-        respSearch.value = '';
-      } else {
-        if (!selectedRespIds.size && demand.responsavel_id) selectedRespIds.add(demand.responsavel_id);
-      }
-      renderRespChips();
-      renderRespOptions();
-    };
+      const syncMapeada = () => {
+        const st = normalizeStatus(status.value);
+        if (st === 'Mapeada') {
+          selectedRespIds.clear();
+          respPctById.clear();
+          respSearch.value = '';
+        } else {
+          if (!selectedRespIds.size) {
+            for (const a of demandAllocations(demand)) {
+              const rid = String(a.resourceId || '').trim();
+              if (!rid) continue;
+              selectedRespIds.add(rid);
+              if (!respPctById.has(rid)) respPctById.set(rid, Number(a.percentual_diario ?? demand.percentual_diario ?? 100));
+            }
+            if (!selectedRespIds.size && demand.responsavel_id) {
+              selectedRespIds.add(demand.responsavel_id);
+              if (!respPctById.has(demand.responsavel_id)) respPctById.set(demand.responsavel_id, Number(demand.percentual_diario ?? 100));
+            }
+          }
+        }
+        renderRespChips();
+        renderRespOptions();
+      };
     status.addEventListener('change', () => { syncMapeada(); renderApontamentos(); });
-    [ini, fim, perc].forEach(field => field.addEventListener('input', renderApontamentos));
+    [ini, fim].forEach(field => field.addEventListener('input', renderApontamentos));
     syncMapeada();
 
     const before = {
@@ -4376,7 +4512,13 @@ main{padding:14px;overflow-x:hidden}
       if (nextStatus === 'Atrasada') { toast('Status Atrasada ? automático. Selecione outro status.'); return; }
       const respIds = (nextStatus === 'Mapeada') ? [] : selectedResponsaveis();
       if (nextStatus !== 'Mapeada' && !respIds.length) { toast('Selecione um ou mais responsáveis ou marque como Mapeada.'); return; }
-      const primaryResponsavelId = respIds.includes(demand.responsavel_id) ? demand.responsavel_id : (respIds[0] || '');
+      const allocations = (nextStatus === 'Mapeada')
+        ? []
+        : respIds.map(rid => ({ resourceId: rid, percentual_diario: Number(respPctById.get(rid) ?? 100) }));
+      for (const a of allocations) {
+        if (!Number.isFinite(a.percentual_diario) || a.percentual_diario < 0) { toast('Percentual por recurso inválido (mínimo 0).'); return; }
+      }
+      const primaryResponsavelId = allocations[0]?.resourceId || '';
       const next = {
         ...demand,
         titulo: (titulo.value || '').trim() || demand.titulo,
@@ -4385,7 +4527,8 @@ main{padding:14px;overflow-x:hidden}
         responsavel_id: (nextStatus === 'Mapeada') ? '' : primaryResponsavelId,
         data_inicio: (ini.value || '').trim() || demand.data_inicio,
         data_fim: (fim.value || '').trim() || demand.data_fim,
-        percentual_diario: Number(perc.value || demand.percentual_diario || 0),
+        percentual_diario: Number(allocations[0]?.percentual_diario || 0),
+        allocations,
         prioridade: prioridade.value,
         status: nextStatus,
         observacoes: (obs.value || '').trim(),
@@ -4412,18 +4555,8 @@ main{padding:14px;overflow-x:hidden}
       state.events = [...state.events, { id: generateId('event'), type:'EDIT_DEMAND', payload:{ demand_id: demand.id, before, after, justification }, timestamp: Date.now(), user: userName, user_id: userId || '' }];
 
       dispatch('UPDATE_DEMAND', next);
-      const extraRespIds = respIds.filter(rid => rid && rid !== primaryResponsavelId);
-      for (const rid of extraRespIds) {
-        dispatch('ADD_DEMAND', {
-          ...next,
-          id: generateId(),
-          responsavel_id: rid,
-          apontamentos: [],
-          last_edit_justification: 'Demanda criada a partir da edição com múltiplos responsáveis.',
-        });
-      }
       try { dlg.close(); } catch { dlg.removeAttribute('open'); }
-      toast(extraRespIds.length ? `Demanda atualizada e ${extraRespIds.length} responsável(is) adicionado(s).` : 'Demanda atualizada.');
+      toast('Demanda atualizada.');
     };
 
 	    saveBtn = button('Salvar alterações', 'primary', save);
@@ -4444,7 +4577,7 @@ main{padding:14px;overflow-x:hidden}
       el('div', { class:'row' }, [
         el('div', { class:'field', style:'flex:1' }, [el('label', {}, ['Responsável']), responsavel]),
         el('div', { class:'field', style:'flex:1' }, [el('label', {}, ['Status']), status]),
-        el('div', { class:'field', style:'max-width:110px' }, [el('label', {}, ['%/dia']), perc]),
+        el('div', { class:'field', style:'min-width:280px' }, [el('label', {}, ['% diário por responsável']), respAllocList]),
       ]),
       el('div', { class:'row' }, [
         el('div', { class:'field' }, [el('label', {}, ['Início']), ini]),
@@ -5602,7 +5735,7 @@ function buildConsolidatedYearSeries(year) {
       for (const r of pageResources) {
         // demandas ativas no mês (exclui Concluída e Mapeada)
         const active = (dashboardFilteredDemands||[]).filter(d => {
-          if ((d.responsavel_id||'') !== r.id) return false;
+          if (!demandAllocations(d).some(a => String(a.resourceId || '') === String(r.id))) return false;
           const st = effectiveStatus(d);
           if (st === 'Mapeada' || st === 'Concluída') return false;
           // overlap com o mês
@@ -5941,7 +6074,7 @@ const svg = buildCapacityVsPlannedSvg({ title: 'Ocupação Consolidada - Ano', s
         ]),
 
         el('div', { class:'grid', style:'gap:8px;margin-top:auto' }, [
-          el('div', { class:'row', style:'justify-content:space-between' }, [el('div', { class:'tiny muted' }, ['Avanão da janela']), el('div', { class:'tiny mono' }, [pctText(p.windowPct)])]),
+          el('div', { class:'row', style:'justify-content:space-between' }, [el('div', { class:'tiny muted' }, ['Avanço da janela']), el('div', { class:'tiny mono' }, [pctText(p.windowPct)])]),
           progressBar(p.windowPct, 'Percentual da janela planejada já consumido'),
           el('div', { class:'row', style:'justify-content:space-between' }, [el('div', { class:'tiny muted' }, ['Execução real apontada']), el('div', { class:'tiny mono' }, [pctText(m.progressPct)])]),
           progressBar(m.progressPct, 'Percentual das horas planejadas já apontado como realizado')
@@ -6167,6 +6300,7 @@ const svg = buildCapacityVsPlannedSvg({ title: 'Ocupação Consolidada - Ano', s
 
       // Responsáveis: busca + chips (mais intuitivo que select multiple/Ctrl)
       const selectedRespIds = new Set();
+      const respPctById = new Map();
       const respSearch = el('input', { class:'multiSelectInput', placeholder:'Digite o nome do responsável...' });
       const respChips = el('div', { style:'display:contents' });
       const respMenu = el('div', { class:'multiSelectMenu' });
@@ -6192,15 +6326,18 @@ const svg = buildCapacityVsPlannedSvg({ title: 'Ocupação Consolidada - Ano', s
         if (!rid || !selectedRespIds.has(rid)) return;
         const keepScrollLeft = respBox ? respBox.scrollLeft : 0;
         selectedRespIds.delete(rid);
+        respPctById.delete(rid);
         renderRespChips();
         renderRespOptions();
         restoreRespBoxScroll(keepScrollLeft, false);
         if (selectedRespIds.size === 0) { status.value = 'Mapeada'; syncMapeada(); }
       };
 
+      const respAllocList = el('div', { class:'grid', style:'gap:8px;margin-top:8px' });
       const renderRespChips = () => {
         const keepScrollLeft = respBox ? respBox.scrollLeft : 0;
         respChips.innerHTML = '';
+        respAllocList.innerHTML = '';
         for (const rid of selectedRespIds) {
           const chip = el('span', { class:'multiSelectChip', 'data-rid': rid }, [
             el('span', {}, [getRespName(rid)]),
@@ -6217,6 +6354,12 @@ const svg = buildCapacityVsPlannedSvg({ title: 'Ocupação Consolidada - Ano', s
             ev.stopPropagation();
           });
           respChips.appendChild(chip);
+          const pct = el('input', { type:'number', min:'0', step:'5', value:String(respPctById.get(rid) ?? 100), style:'max-width:110px' });
+          pct.addEventListener('input', () => { respPctById.set(rid, Number(pct.value || 0)); });
+          respAllocList.appendChild(el('div', { class:'row', style:'justify-content:space-between' }, [
+            el('div', { class:'tiny' }, [getRespName(rid)]),
+            el('div', { class:'field compact' }, [el('label', {}, ['% diário']), pct]),
+          ]));
         }
         restoreRespBoxScroll(keepScrollLeft, false);
       };
@@ -6225,6 +6368,7 @@ const svg = buildCapacityVsPlannedSvg({ title: 'Ocupação Consolidada - Ano', s
         const keepScrollLeft = respBox ? respBox.scrollLeft : 0;
         const wasAtEnd = isRespBoxAtEnd() && document.activeElement === respSearch;
         selectedRespIds.add(rid);
+        if (!respPctById.has(rid)) respPctById.set(rid, 100);
         respSearch.value = '';
         if (normalizeStatus(status.value) === 'Mapeada') status.value = 'Em andamento';
         syncMapeada();
@@ -6279,7 +6423,6 @@ const svg = buildCapacityVsPlannedSvg({ title: 'Ocupação Consolidada - Ano', s
 
       const ini = el('input', { type:'date' });
       const fim = el('input', { type:'date' });
-      const perc = el('input', { type:'number', min:'0', step:'5', value:'100' });
       const prioridade = el('select', {}, [
         el('option', { value:'Baixa' }, ['Baixa']),
         el('option', { value:'Média' }, ['Média']),
@@ -6356,6 +6499,12 @@ const svg = buildCapacityVsPlannedSvg({ title: 'Ocupação Consolidada - Ano', s
           if (fimVal < iniVal) return toast('A data fim não pode ser anterior ao início.');
         }
 
+        const allocations = (st === 'Mapeada')
+          ? []
+          : respIds.map(rid => ({ resourceId: rid, percentual_diario: Number(respPctById.get(rid) ?? 100) }));
+        for (const a of allocations) {
+          if (!Number.isFinite(a.percentual_diario) || a.percentual_diario < 0) return toast('Percentual por recurso inválido (mínimo 0).');
+        }
         const basePayload = {
           logical_group_id: generateId('demand-group'),
           titulo: titulo.value.trim(),
@@ -6363,19 +6512,18 @@ const svg = buildCapacityVsPlannedSvg({ title: 'Ocupação Consolidada - Ano', s
           focal: (focal.value||'').trim(),
           data_inicio: iniVal,
           data_fim: fimVal,
-          percentual_diario: Number(perc.value||0),
+          percentual_diario: Number(allocations[0]?.percentual_diario || 0),
           observacoes: obs.value || '',
           prioridade: prioridade.value,
           status: st,
           reprogramacoes: 0,
+          allocations,
+          responsavel_id: allocations[0]?.resourceId || '',
         };
-        const targets = (st === 'Mapeada') ? [''] : respIds;
-        for (const rid of targets) {
-          dispatch('ADD_DEMAND', { ...basePayload, id: generateId(), responsavel_id: rid });
-        }
-        titulo.value=''; predio.value=''; selectedRespIds.clear(); respSearch.value=''; focal.value=''; ini.value=''; fim.value=''; perc.value='100'; obs.value=''; prioridade.value='Média'; status.value='Mapeada';
+        dispatch('ADD_DEMAND', { ...basePayload, id: generateId() });
+        titulo.value=''; predio.value=''; selectedRespIds.clear(); respPctById.clear(); respSearch.value=''; focal.value=''; ini.value=''; fim.value=''; obs.value=''; prioridade.value='Média'; status.value='Mapeada';
         syncMapeada();
-        toast(targets.length > 1 ? `${targets.length} demandas adicionadas.` : 'Demanda adicionada.');
+        toast('Demanda adicionada.');
       };
 
       const right = el('div', { class:'row' }, [button('Adicionar', 'primary', submit)]);
@@ -6386,7 +6534,7 @@ const svg = buildCapacityVsPlannedSvg({ title: 'Ocupação Consolidada - Ano', s
             el('div', { class:'field' }, [el('label', {}, ['Prédio']), predio]),
             el('div', { class:'field' }, [el('label', {}, ['Focal']), focal]),
             el('div', { class:'field demandRespField' }, [el('label', {}, ['Responsável(is)']), responsavel]),
-            el('div', { class:'field demandPercField' }, [el('label', {}, ['% diário']), perc]),
+            el('div', { class:'field', style:'min-width:290px' }, [el('label', {}, ['% diário por responsável']), respAllocList]),
             el('div', { class:'field' }, [el('label', {}, ['Prioridade']), prioridade]),
             el('div', { class:'field' }, [el('label', {}, ['Status']), status]),
           ]),
@@ -6482,7 +6630,13 @@ const svg = buildCapacityVsPlannedSvg({ title: 'Ocupação Consolidada - Ano', s
         tr.appendChild(el('td', {}, [d.focal||'-']));
         tr.appendChild(el('td', {}, respNames.map((name, idx) => el('div', {}, [idx === respNames.length - 1 ? name : `${name},`]))));
         tr.appendChild(el('td', { class:'mono tiny' }, [`${formatDateBR(d.data_inicio)} - ${formatDateBR(d.data_fim)}`]));
-        tr.appendChild(el('td', {}, [String(d.percentual_diario||0)]));
+        const allocLabels = demandAllocations(d)
+          .map(a => {
+            const rid = String(a.resourceId || '').trim();
+            const nm = resMap[rid]?.nome || rid || '-';
+            return `${nm}: ${Number(a.percentual_diario||0)}%`;
+          });
+        tr.appendChild(el('td', {}, [allocLabels.length ? allocLabels.join(' | ') : String(d.percentual_diario||0)]));
         tr.appendChild(el('td', {}, [d.prioridade]));
         tr.appendChild(el('td', {}, [statusPill(d)]));
 
@@ -6878,7 +7032,7 @@ const viewWindows = () => {
     const pct = cap > 0 ? (free / cap) * 100 : 0;
     const occPct = cap > 0 ? (alloc / cap) * 100 : 0;
     const demandsCount = (state.demands||[]).filter(d => {
-      if ((d.responsavel_id||'') !== resourceId) return false;
+      if (!demandAllocations(d).some(a => String(a.resourceId || '') === String(resourceId))) return false;
       const st = effectiveStatus(d);
       if (!STATUS_COUNTS_IN_ALLOCATION.has(st)) return false;
       const monthStart = `${y}-${String(m0+1).padStart(2,'0')}-01`;
@@ -8437,13 +8591,8 @@ return el('div', { class:'grid' }, [
         await navigator.clipboard.writeText(dbPathValue);
         toast('Caminho copiado.');
       } catch {
-        const tmp = document.createElement('textarea');
-        tmp.value = dbPathValue;
-        document.body.appendChild(tmp);
-        tmp.select();
-        document.execCommand('copy');
-        tmp.remove();
-        toast('Caminho copiado.');
+        const copied = fallbackCopyText(dbPathValue);
+        toast(copied ? 'Caminho copiado.' : 'Não foi possível copiar o caminho.');
       }
     };
 
@@ -8933,6 +9082,19 @@ return el('div', { class:'grid' }, [
       console.error(e);
       toast('Falha ao exportar CSV.');
     }
+  };
+  const fallbackCopyText = (value) => {
+    const tmp = document.createElement('textarea');
+    tmp.value = String(value || '');
+    tmp.setAttribute('readonly', '');
+    tmp.style.position = 'fixed';
+    tmp.style.top = '-1000px';
+    document.body.appendChild(tmp);
+    tmp.select();
+    tmp.setSelectionRange(0, tmp.value.length);
+    const ok = document.execCommand('copy');
+    tmp.remove();
+    return ok;
   };
 
   const excelXmlEscape = (v) => String(v ?? '')
@@ -9493,11 +9655,8 @@ const syncPreview = () => {
         toast('ID copiado.');
       } catch {
         // fallback
-        const tmp = document.createElement('textarea');
-        tmp.value = val; document.body.appendChild(tmp);
-        tmp.select(); document.execCommand('copy');
-        tmp.remove();
-        toast('ID copiado.');
+        const copied = fallbackCopyText(val);
+        toast(copied ? 'ID copiado.' : 'Não foi possível copiar o ID.');
       }
     });
 const tryClose = () => {
@@ -9519,10 +9678,8 @@ const tryClose = () => {
       }
       const nm = String(nameInput?.value||'').trim();
       if (!nm) { toast('Informe seu nome completo.'); return; }
-      const u = ensureUserIdentity(nm); // persists to localStorage
-      userName = u.displayName; userId = u.userId;
+      setUser(nm);
       const hdr = qs('#userName'); if (hdr) hdr.value = userName;
-      updateAvatar();
       closeDialog(dlg);
       document.body.classList.remove('user-modal-open');
       toast('Usuário definido com sucesso.');
@@ -9543,18 +9700,22 @@ const tryClose = () => {
       const u = loadUserIdentity();
       userName = u.displayName;
       userId = u.userId;
+      ensureUserAsResource();
       updateAvatar();
     }
   });
 
   // Avatar always opens identity modal
   const avatarClickHandler__capview = () => openUserModal(true);
-  qs('#avatar').addEventListener('click', avatarClickHandler__capview);
-  qs('#avatar').addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault();
-    }
-  });
+  const avatarEl = qs('#avatar');
+  if (avatarEl) {
+    avatarEl.addEventListener('click', avatarClickHandler__capview);
+    avatarEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+      }
+    });
+  }
 
 const commitHeaderUserName = (input) => {
   if (!input) return;
@@ -9581,6 +9742,7 @@ qs('#userName').addEventListener('keydown', (e) => {
   }
 });
   // Initialize user UI (after helpers exist)
+  ensureUserAsResource();
   updateAvatar();
   if (!hasUser()) { setTimeout(() => openUserModal(true), 60); }
 
