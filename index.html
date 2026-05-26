@@ -983,16 +983,17 @@ main{padding:14px;overflow-x:hidden}
     .replace(/(^-|-$)/g,'')
     .slice(0, 40);
 
+  const buildIdentityFromName = (displayName) => {
+    const nm = String(displayName || '').trim();
+    if (!nm) return { displayName:'', userId:'' };
+    const slug = slugify(nm) || 'user';
+    const suffix = (safeUUID() || uid()).toString().replace(/[^a-z0-9]/gi,'').slice(0,8);
+    return { displayName: nm, userId: `${slug}__${suffix}` };
+  };
   
 
   // Preview-only identity (does NOT persist). Used while typing in the modal.
-  const previewUserIdentity = (displayName) => {
-    const nm = String(displayName||'').trim();
-    if (!nm) return { displayName:'', userId:'' };
-    const slug = slugify(nm) || 'user';
-    const suffix = (safeUUID()||uid()).toString().replace(/[^a-z0-9]/gi,'').slice(0,8);
-    return { displayName: nm, userId: `${slug}__${suffix}` };
-  };
+  const previewUserIdentity = (displayName) => buildIdentityFromName(displayName);
 
 // Compat: uid() existed in older builds (definido acima)
 
@@ -1013,9 +1014,7 @@ main{padding:14px;overflow-x:hidden}
         const nm = String(obj.displayName || obj.name || obj.userName || '').trim();
         let id = String(obj.userId || obj.id || '').trim();
         if (nm && !id) {
-          const slug = slugify(nm) || 'user';
-          const suffix = (safeUUID()||uid()).toString().replace(/[^a-z0-9]/gi,'').slice(0,8);
-          id = `${slug}__${suffix}`;
+          id = buildIdentityFromName(nm).userId;
           localStorage.setItem(USER_KEY, JSON.stringify({ displayName: nm, userId: id }));
         }
         return { displayName: nm, userId: id };
@@ -1023,11 +1022,8 @@ main{padding:14px;overflow-x:hidden}
     } catch {
       // legacy: raw string with the name
       const nm = String(raw||'').trim();
-      if (!nm) return { displayName:'', userId:'' };
-      const slug = slugify(nm) || 'user';
-      const suffix = (safeUUID()||uid()).toString().replace(/[^a-z0-9]/gi,'').slice(0,8);
-      const id = `${slug}__${suffix}`;
-      const u = { displayName: nm, userId: id };
+      const u = buildIdentityFromName(nm);
+      if (!u.displayName) return u;
       localStorage.setItem(USER_KEY, JSON.stringify(u));
       return u;
     }
@@ -1044,9 +1040,7 @@ main{padding:14px;overflow-x:hidden}
     let existing = loadUserIdentity();
     // keep the same userId on this PC/browser once created
     if (!existing.userId) {
-      const slug = slugify(nm) || 'user';
-      const suffix = (safeUUID()||uid()).toString().replace(/[^a-z0-9]/gi,'').slice(0,8);
-      existing.userId = `${slug}__${suffix}`;
+      existing.userId = buildIdentityFromName(nm).userId;
     }
     existing.displayName = nm;
     persistUserIdentity(existing);
