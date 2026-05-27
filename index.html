@@ -3084,24 +3084,29 @@ main{padding:14px;overflow-x:hidden}
   };
 
   const ensureUserAsResource = () => {
-    if (!hasUser()) return false;
-    const uid = String(userId || '').trim();
-    if (!uid || uid.startsWith('sessao-local__')) return false;
-    const alreadyExists = (state.resources || []).some((r) => {
-      const ownerId = String(r?.owner_user_id || r?.ownerUserId || '').trim();
-      return ownerId === uid;
-    });
-    if (alreadyExists) return false;
-    dispatch('ADD_RESOURCE', {
-      id: generateId('resource'),
-      nome: String(userName || '').trim() || 'Usuário',
-      tipo: 'Interno',
-      horas_dia: (type.value === 'Terceiro' ? HOURS_PER_DAY_THIRD : HOURS_PER_DAY),
-      ativo: true,
-      owner_user_id: uid,
-      auto_created_from_user: true,
-    });
-    return true;
+    try {
+      if (!hasUser()) return false;
+      const uid = String(userId || '').trim();
+      if (!uid || uid.startsWith('sessao-local__')) return false;
+      const alreadyExists = (state.resources || []).some((r) => {
+        const ownerId = String(r?.owner_user_id || r?.ownerUserId || '').trim();
+        return ownerId === uid;
+      });
+      if (alreadyExists) return false;
+      dispatch('ADD_RESOURCE', {
+        id: generateId('resource'),
+        nome: String(userName || '').trim() || 'Usuário',
+        tipo: 'Interno',
+        horas_dia: HOURS_PER_DAY,
+        ativo: true,
+        owner_user_id: uid,
+        auto_created_from_user: true,
+      });
+      return true;
+    } catch (err) {
+      console.warn('[ORIZON] Falha ao garantir usuário como recurso:', err);
+      return false;
+    }
   };
 
   // ----------------------
