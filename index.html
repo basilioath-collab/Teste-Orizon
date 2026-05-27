@@ -3082,6 +3082,18 @@ main{padding:14px;overflow-x:hidden}
     const allocs = normalizeDemandAllocations(demand);
     return allocs.length ? allocs : [];
   };
+  const validateDemandAllocationLimits = (allocations=[]) => {
+    const list = Array.isArray(allocations) ? allocations : [];
+    let total = 0;
+    for (const a of list) {
+      const pct = Number(a?.percentual_diario ?? 0);
+      if (!Number.isFinite(pct) || pct < 0) return { ok:false, msg:'Percentual por recurso inválido (mínimo 0).' };
+      if (pct > 100) return { ok:false, msg:'Percentual por recurso não pode passar de 100%.' };
+      total += pct;
+    }
+    if (total > 100) return { ok:false, msg:`A soma dos percentuais da demanda não pode passar de 100% (atual: ${total.toFixed(1)}%).` };
+    return { ok:true, total };
+  };
 
   const ensureUserAsResource = () => {
     try {
@@ -4588,9 +4600,8 @@ main{padding:14px;overflow-x:hidden}
       const allocations = (nextStatus === 'Mapeada')
         ? []
         : respIds.map(rid => ({ resourceId: rid, percentual_diario: Number(respPctById.get(rid) ?? 100) }));
-      for (const a of allocations) {
-        if (!Number.isFinite(a.percentual_diario) || a.percentual_diario < 0) { toast('Percentual por recurso inválido (mínimo 0).'); return; }
-      }
+      const allocValidation = validateDemandAllocationLimits(allocations);
+      if (!allocValidation.ok) { toast(allocValidation.msg); return; }
       const primaryResponsavelId = allocations[0]?.resourceId || '';
       const next = {
         ...demand,
@@ -6602,9 +6613,8 @@ const svg = buildCapacityVsPlannedSvg({ title: 'Ocupação Consolidada - Ano', s
         const allocations = (st === 'Mapeada')
           ? []
           : respIds.map(rid => ({ resourceId: rid, percentual_diario: Number(respPctById.get(rid) ?? 100) }));
-        for (const a of allocations) {
-          if (!Number.isFinite(a.percentual_diario) || a.percentual_diario < 0) return toast('Percentual por recurso inválido (mínimo 0).');
-        }
+        const allocValidation = validateDemandAllocationLimits(allocations);
+        if (!allocValidation.ok) return toast(allocValidation.msg);
         const basePayload = {
           logical_group_id: generateId('demand-group'),
           titulo: titulo.value.trim(),
