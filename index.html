@@ -3917,10 +3917,10 @@ main{padding:14px;overflow-x:hidden}
         return { dateStr, capacity: 0, allocated: 0, free: 0, tag: 'OFF', cls: 'bg-off', eligible: false, overtime: otInfo };
       }
 
-      const base = blockedNoHe ? 0 : HOURS_PER_DAY;
+      const base = blockedNoHe ? 0 : getResourceHoursPerDay(res);
       const capacity = Math.max(0, Number(base || 0)) + otHours;
       const perc = this.dailyPercentAllocated(resourceId, dateObj);
-      const allocated = Math.max(0, Number(perc || 0)) / 100 * HOURS_PER_DAY;
+      const allocated = Math.max(0, Number(perc || 0)) / 100 * getResourceHoursPerDay(res);
       const free = capacity - allocated;
 
       let cls = '';
@@ -7384,7 +7384,10 @@ const viewWindows = () => {
       const pctTxt = `${pct.toFixed(0)}%`;
       const heTotal = overtimeInfo(resourceId, dateStr).total;
 
-      const ending = (state.demands||[]).filter(x => (x.responsavel_id||'') === resourceId && x.data_fim === dateStr);
+      const ending = (state.demands||[]).filter(x => {
+        if (String(x.data_fim || '') !== dateStr) return false;
+        return demandAllocations(x).some(a => String(a.resourceId || '') === String(resourceId || ''));
+      });
       const endingCount = ending.length;
 
       const active = demandsForResourceOnDate(resourceId, dateStr);
