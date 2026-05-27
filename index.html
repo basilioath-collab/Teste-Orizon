@@ -3096,7 +3096,7 @@ main{padding:14px;overflow-x:hidden}
       id: generateId('resource'),
       nome: String(userName || '').trim() || 'Usuário',
       tipo: 'Interno',
-      horas_dia: HOURS_PER_DAY,
+      horas_dia: (type.value === 'Terceiro' ? HOURS_PER_DAY_THIRD : HOURS_PER_DAY),
       ativo: true,
       owner_user_id: uid,
       auto_created_from_user: true,
