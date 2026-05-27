@@ -3102,7 +3102,7 @@ main{padding:14px;overflow-x:hidden}
         return ownerId === uid;
       });
       if (alreadyExists) return false;
-      dispatch('ADD_RESOURCE', {
+      const payload = {
         id: generateId('resource'),
         nome: String(userName || '').trim() || 'Usuário',
         tipo: 'Interno',
@@ -3110,7 +3110,13 @@ main{padding:14px;overflow-x:hidden}
         ativo: true,
         owner_user_id: uid,
         auto_created_from_user: true,
-      });
+      };
+      try {
+        dispatch('ADD_RESOURCE', payload);
+      } catch (errDispatch) {
+        console.warn('[ORIZON] Falha no dispatch ao auto-criar recurso do usuário, aplicando fallback local:', errDispatch);
+        state.resources.unshift(applyCreateMeta(payload));
+      }
       return true;
     } catch (err) {
       console.warn('[ORIZON] Falha ao garantir usuário como recurso:', err);
