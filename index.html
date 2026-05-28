@@ -4144,6 +4144,9 @@ main{padding:14px;overflow-x:hidden}
         for (const d of pageItems) {
           const st = effectiveStatus(d);
           const counts = STATUS_COUNTS_IN_ALLOCATION.has(st);
+          const allocPctForResource = demandAllocations(d)
+            .filter(a => String(a.resourceId || '') === String(resourceId || ''))
+            .reduce((acc, a) => acc + Number(a.percentual_diario || 0), 0);
           const tr = el('tr');
           if (st === 'Atrasada') tr.classList.add('overdueRow');
           tr.appendChild(el('td', {}, [
@@ -4151,7 +4154,7 @@ main{padding:14px;overflow-x:hidden}
             el('div', { class:'tiny' }, [counts ? 'Conta na alocação' : 'Não conta na alocação'])
           ]));
           tr.appendChild(el('td', {}, [statusPill(d)]));
-          tr.appendChild(el('td', {}, [String(d.percentual_diario||0)]));
+          tr.appendChild(el('td', {}, [String(Math.max(0, allocPctForResource))]));
           tr.appendChild(el('td', {}, [d.predio||'-']));
           tr.appendChild(el('td', {}, [d.focal||'-']));
           tr.appendChild(el('td', {}, [resourceById()[d.responsavel_id]?.nome || '-']));
