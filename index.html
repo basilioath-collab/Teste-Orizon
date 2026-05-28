@@ -450,6 +450,15 @@ main{padding:14px;overflow-x:hidden}
 .modalCloseBtn{border-radius:999px;min-width:38px;height:38px;display:flex;align-items:center;justify-content:center;}
 .userWarningCompact{margin-top:0;margin-bottom:14px;}
 .userWarningCompact .pill{background: rgba(217,119,6,.18);border:1px solid rgba(217,119,6,.35);color: rgba(217,119,6,1);font-weight:800;}
+.eventFolderStatus{display:inline-flex;align-items:center;gap:8px;border:1px solid rgba(255,255,255,.24);border-radius:999px;padding:8px 12px;background:rgba(255,255,255,.10);color:#fff;font-size:12px;font-weight:950;cursor:pointer;white-space:nowrap;box-shadow:inset 0 0 0 1px rgba(255,255,255,.06);transition:transform .12s ease,background-color .16s ease,border-color .16s ease,color .16s ease}
+.eventFolderStatus:hover{transform:translateY(-1px);background:rgba(255,255,255,.16)}
+.eventFolderStatus .eventFolderDot{width:10px;height:10px;border-radius:999px;background:#DC2626;box-shadow:0 0 0 3px rgba(220,38,38,.18)}
+.eventFolderStatus.connected{background:rgba(166,226,46,.16);border-color:rgba(166,226,46,.72);color:#fff}
+.eventFolderStatus.connected .eventFolderDot{background:#A6E22E;box-shadow:0 0 0 3px rgba(166,226,46,.20)}
+.eventFolderStatus.reconnect{background:rgba(245,158,11,.20);border-color:rgba(245,158,11,.75);color:#fff}
+.eventFolderStatus.reconnect .eventFolderDot{background:#F59E0B;box-shadow:0 0 0 3px rgba(245,158,11,.22)}
+.eventFolderStatus.disconnected{background:rgba(220,38,38,.18);border-color:rgba(248,113,113,.72);color:#fff}
+@media (max-width:760px){.eventFolderStatus{order:3;width:100%;justify-content:center}.eventFolderText{overflow:hidden;text-overflow:ellipsis}}
 .formStack{display:flex;flex-direction:column;gap:14px;margin-top:0;}
 .rowBetween{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px;}
 .hint.tiny{font-size:12px;opacity:.78;margin-top:6px;}
@@ -602,6 +611,11 @@ main{padding:14px;overflow-x:hidden}
             PLANEJAMENTO
         </div>
   </div>
+
+  <button class="eventFolderStatus disconnected" id="eventFolderHeaderStatus" type="button" title="Conectar pasta ORIZONData">
+    <span class="eventFolderDot" aria-hidden="true"></span>
+    <span class="eventFolderText">Conectar pasta de eventos</span>
+  </button>
 
   <div class="userBox">
     <div class="meta">
@@ -2730,6 +2744,31 @@ main{padding:14px;overflow-x:hidden}
   };
 
   const sharedFolderReady = () => !!(capviewEventMode.enabled && capviewDataDirHandle && capviewEventsDirHandle && capviewSnapshotFileHandle);
+  const hasEventFolderIntent = () => !!(capviewEventMode.enabled || capviewEventMode.folderName || loadLocalEventOutbox().length);
+  const eventFolderConnectionStatus = () => {
+    if (sharedFolderReady()) {
+      return {
+        state: 'connected',
+        label: 'Pasta de eventos conectada',
+        detail: capviewEventMode.folderName || 'ORIZONData',
+        actionLabel: 'Ver sincronização'
+      };
+    }
+    if (hasEventFolderIntent()) {
+      return {
+        state: 'reconnect',
+        label: 'Reconectar pasta de eventos',
+        detail: capviewEventMode.folderName || 'ORIZONData',
+        actionLabel: 'Reconectar pasta de eventos'
+      };
+    }
+    return {
+      state: 'disconnected',
+      label: 'Conectar pasta de eventos',
+      detail: 'ORIZONData',
+      actionLabel: 'Conectar pasta de eventos'
+    };
+  };
 
   const persistEventFolderMeta = () => {
     try { localStorage.setItem(EVENT_MODE_KEY, capviewEventMode.enabled ? '1' : '0'); } catch {}
@@ -2751,6 +2790,20 @@ main{padding:14px;overflow-x:hidden}
     capviewEventMode.lastStatus = String(msg || '');
     persistEventFolderMeta();
     try { console.log('[ORIZON Eventos]', msg || ''); } catch {}
+  };
+
+  const isEventFolderRecoverableError = (e) => isDbHandleRecoverableError(e) || /directory|file|permission|not.?found|network|handle|pasta|arquivo/i.test(String(e?.message || ''));
+
+  const markEventFolderDisconnected = (message='Pasta de eventos desconectada. Reconecte a pasta ORIZONData para voltar a sincronizar.') => {
+    capviewEventMode.enabled = true;
+    capviewEventMode.autoSyncError = String(message || '');
+    setEventModeStatus(message);
+    capviewDataDirHandle = null;
+    capviewEventsDirHandle = null;
+    capviewSnapshotFileHandle = null;
+    try { stopEventAutoSync(); } catch {}
+    persistEventFolderMeta();
+    try { requestRenderSafely('event-folder-disconnected'); } catch { try { render(); } catch {} }
   };
 
   // V5.6 ? Autosync de eventos por pasta compartilhada.
@@ -3590,7 +3643,9 @@ main{padding:14px;overflow-x:hidden}
       return writtenIds.length;
     } catch (e) {
       console.warn('[ORIZON Eventos] Falha ao enviar outbox:', e);
-      setEventModeStatus('Falha ao enviar outbox: ' + (e?.message || 'erro desconhecido'));
+      const msg = 'Falha ao enviar outbox: ' + (e?.message || 'erro desconhecido');
+      setEventModeStatus(msg);
+      if (isEventFolderRecoverableError(e)) markEventFolderDisconnected('Pasta de eventos desconectada. Pendências locais preservadas; reconecte a ORIZONData para enviar o outbox.');
       return writtenIds.length;
     } finally {
       capviewEventWriteInFlight = false;
@@ -3780,6 +3835,7 @@ main{padding:14px;overflow-x:hidden}
       return newPending.length;
     } catch (e) {
       console.error('[ORIZON Eventos] Falha ao sincronizar:', e);
+      if (isEventFolderRecoverableError(e)) markEventFolderDisconnected('Pasta de eventos desconectada. Reconecte a ORIZONData para ler snapshot e eventos.');
       if (!silent) toast(e?.message || 'Falha ao ler eventos da pasta.');
       return 0;
     }
@@ -3808,6 +3864,7 @@ main{padding:14px;overflow-x:hidden}
       return true;
     } catch (e) {
       console.error('[ORIZON Eventos] Falha ao consolidar snapshot:', e);
+      if (isEventFolderRecoverableError(e)) markEventFolderDisconnected('Pasta de eventos desconectada. Reconecte a ORIZONData para consolidar o snapshot.');
       toast(e?.message || 'Falha ao consolidar eventos no snapshot.');
       return false;
     }
@@ -8898,10 +8955,10 @@ return el('div', { class:'grid' }, [
 
     const body = el('div', { class:'grid' }, [
       el('div', { class:'hint tiny' }, [
-        el('b', {}, ['Banco de Dados por arquivo: ']),
-        'use esta aba para apontar o JSON oficial na pasta de rede. Depois de selecionado, o app salva no arquivo e monitora alterações para mesclar o uso simultâneo.'
+        el('b', {}, ['Banco JSON direto (avançado): ']),
+        'use apenas para importação, manutenção ou recuperação. Para operação diária com múltiplos usuários, conecte a pasta ORIZONData em Eventos por usuário.'
       ]),
-      card('Banco de Dados', null, el('div', { class:'grid' }, [
+      card('Banco JSON direto (avançado)', null, el('div', { class:'grid' }, [
         dbMeta,
         el('div', { class:'row' }, [
           el('div', { class:'field' }, [
@@ -9081,33 +9138,62 @@ return el('div', { class:'grid' }, [
     }
     return selectDbReadWrite();
   };
+  const selectEventFolderFromAnyView = () => {
+    if (activeTab !== 'consolidation') {
+      activeTab = 'consolidation';
+      render();
+    }
+    return selectORIZONDataFolder();
+  };
 
-  const renderNoDbBanner = () => el('div', { class:'globalDbWarn', style:'margin-bottom:14px' }, [
-    el('div', { style:'font-weight:950' }, ['Nenhum BD Vinculado']),
-    dbPathValue
-      ? el('span', { class:'tiny', style:'display:block;margin-top:4px' }, ['Caminho salvo: ', el('span', { class:'mono' }, [dbPathValue])])
-      : el('span', { class:'tiny', style:'display:block;margin-top:4px' }, ['Selecione o arquivo JSON oficial da pasta de rede para salvar e sincronizar as alterações.']),
-    el('div', { class:'row', style:'margin-top:10px;gap:8px;flex-wrap:wrap' }, [
-      button('Selecionar BD', 'primary', selectDbFromAnyView),
-      activeTab !== 'consolidation' ? button('Ir para Sincronização de BD', '', goToDbSync) : null,
-    ].filter(Boolean))
-  ]);
+  const updateEventFolderHeaderStatus = () => {
+    const btn = qs('#eventFolderHeaderStatus');
+    if (!btn) return;
+    const status = eventFolderConnectionStatus();
+    btn.className = `eventFolderStatus ${status.state}`;
+    btn.title = `${status.actionLabel}: ${status.detail}`;
+    btn.onclick = status.state === 'connected' ? goToDbSync : selectEventFolderFromAnyView;
+    const txt = qs('.eventFolderText', btn);
+    if (txt) txt.textContent = status.label;
+  };
+
+  const renderEventFolderBanner = () => {
+    const status = eventFolderConnectionStatus();
+    const isReconnect = status.state === 'reconnect';
+    return el('div', { class:'globalDbWarn', style:'margin-bottom:14px' }, [
+      el('div', { style:'font-weight:950' }, [isReconnect ? 'Pasta de eventos desconectada' : 'Pasta de eventos não conectada']),
+      el('span', { class:'tiny', style:'display:block;margin-top:4px' }, [
+        isReconnect
+          ? 'O app preservou as alterações locais. Reconecte a pasta ORIZONData para voltar a ler snapshot e gravar eventos.'
+          : 'Selecione a pasta ORIZONData para salvar e sincronizar as alterações por usuário.',
+        capviewEventMode.lastStatus ? ' Status: ' + capviewEventMode.lastStatus : ''
+      ]),
+      status.detail ? el('span', { class:'tiny mono', style:'display:block;margin-top:4px' }, ['Pasta: ', status.detail]) : null,
+      el('div', { class:'row', style:'margin-top:10px;gap:8px;flex-wrap:wrap' }, [
+        button(status.actionLabel, 'primary', selectEventFolderFromAnyView),
+        activeTab !== 'consolidation' ? button('Ir para Sincronização de BD', '', goToDbSync) : null,
+        button('Usar BD JSON direto (avançado)', '', selectDbFromAnyView),
+      ].filter(Boolean))
+    ].filter(Boolean));
+  };
 
   const renderDbReconnectBanner = () => el('div', { class:'globalDbWarn', style:'margin-bottom:14px' }, [
-    el('div', { style:'font-weight:950' }, ['BD desconectado ou vínculo inválido']),
+    el('div', { style:'font-weight:950' }, ['BD JSON direto desconectado ou vínculo inválido']),
     el('span', { class:'tiny', style:'display:block;margin-top:4px' }, [
-      'O autosync foi pausado e suas alterações locais foram mantidas. Selecione novamente o JSON oficial para reconectar.',
+      'O autosync do BD JSON foi pausado. Para o fluxo recomendado, conecte a pasta ORIZONData; para manutenção, selecione novamente o JSON oficial.',
       dbAutoSyncPauseReason ? ' Motivo: ' + dbAutoSyncPauseReason + '.' : ''
     ]),
     dbBinding?.name ? el('span', { class:'tiny mono', style:'display:block;margin-top:4px' }, ['Último BD: ', dbBinding.name]) : null,
     el('div', { class:'row', style:'margin-top:10px;gap:8px;flex-wrap:wrap' }, [
-      button('Reconectar BD', 'primary', selectDbFromAnyView),
+      button('Conectar pasta de eventos', 'primary', selectEventFolderFromAnyView),
+      button('Reconectar BD JSON', '', selectDbFromAnyView),
       activeTab !== 'consolidation' ? button('Ir para Sincronização de BD', '', goToDbSync) : null,
     ].filter(Boolean))
   ].filter(Boolean));
 
   const render = () => {
     renderTabs();
+    updateEventFolderHeaderStatus();
     const root = qs('#app');
     root.innerHTML = '';
 
@@ -9123,10 +9209,10 @@ return el('div', { class:'grid' }, [
     else if (activeTab === 'consolidation') view = viewConsolidation();
     else view = el('div', {}, ['Aba inválida.']);
 
-    if (hasDbReconnectNeeded()) {
+    if (!sharedFolderReady()) {
+      root.appendChild(renderEventFolderBanner());
+    } else if (hasDbReconnectNeeded()) {
       root.appendChild(renderDbReconnectBanner());
-    } else if (!hasDbBinding()) {
-      root.appendChild(renderNoDbBanner());
     }
 
     root.appendChild(view);
