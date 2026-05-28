@@ -7112,79 +7112,6 @@ const svg = buildCapacityVsPlannedSvg({ title: 'Ocupação Consolidada - Ano', s
     return isFinite(v) ? v : 14;
   };
 
-  const viewInternalActivities = () => {
-    const type = el('select', {}, [
-      el('option', { value:'Reunião administrativa' }, ['Reunião administrativa']),
-      el('option', { value:'Treinamento' }, ['Treinamento']),
-      el('option', { value:'Leitura/Estudo' }, ['Leitura/Estudo']),
-      el('option', { value:'Fórum/Comunidade' }, ['Fórum/Comunidade']),
-      el('option', { value:'Curso/Escola técnica' }, ['Curso/Escola técnica']),
-    ]);
-    const title = el('input', { placeholder:'Título da atividade' });
-    const resourceSel = el('select');
-    for (const r of (state.resources||[])) resourceSel.appendChild(el('option', { value:r.id }, [r.nome]));
-    const ini = el('input', { type:'date', value: todayISO() });
-    const fim = el('input', { type:'date', value: todayISO() });
-    const horas = el('input', { type:'number', min:'0', max:'24', step:'0.5', value:'1' });
-    const contabiliza = el('select', {}, [el('option', { value:'true' }, ['Contabiliza capacidade']), el('option', { value:'false' }, ['Apenas informativa'])]);
-    const obs = el('textarea', { placeholder:'Observações...' });
-    const add = () => {
-      if (!resourceSel.value) return toast('Cadastre/seleciona um recurso.');
-      if (!title.value.trim()) return toast('Informe o título da atividade interna.');
-      if (!ini.value || !fim.value || fim.value < ini.value) return toast('Período inválido.');
-      const hh = Number(horas.value || 0);
-      if (!Number.isFinite(hh) || hh < 0) return toast('Horas/dia inválidas.');
-      dispatch('ADD_INTERNAL_ACTIVITY', {
-        id: generateId('ia'),
-        resourceId: resourceSel.value,
-        tipo: type.value,
-        titulo: title.value.trim(),
-        data_inicio: ini.value,
-        data_fim: fim.value,
-        horas_dia: hh,
-        contabiliza_capacidade: contabiliza.value === 'true',
-        observacoes: obs.value || '',
-      });
-      title.value=''; horas.value='1'; obs.value='';
-      render();
-    };
-    const rows = (state.internalActivities||[]).slice().sort((a,b)=>String(b.data_inicio||'').localeCompare(String(a.data_inicio||'')));
-    const table = el('table');
-    table.appendChild(el('thead', {}, [el('tr', {}, ['Tipo','Título','Recurso','Período','Horas/dia','Capacidade','Ação'].map(h=>el('th',{},[h])))]));
-    const tb = el('tbody');
-    for (const a of rows) {
-      const r = (state.resources||[]).find(x=>String(x.id)===String(a.resourceId));
-      const tr = el('tr');
-      tr.appendChild(el('td',{},[String(a.tipo||'')]));
-      tr.appendChild(el('td',{},[String(a.titulo||'')]));
-      tr.appendChild(el('td',{},[r?.nome || String(a.resourceId||'')]));
-      tr.appendChild(el('td',{},[`${formatDateBR(a.data_inicio)} - ${formatDateBR(a.data_fim)}`]));
-      tr.appendChild(el('td',{},[`${Number(a.horas_dia||0).toFixed(1)}h`]));
-      tr.appendChild(el('td',{},[a.contabiliza_capacidade===false?'Não':'Sim']));
-      tr.appendChild(el('td',{},[button('Excluir','danger',()=>{dispatch('DELETE_INTERNAL_ACTIVITY', a.id); render();})]));
-      tb.appendChild(tr);
-    }
-    if (!rows.length) tb.appendChild(el('tr',{},[el('td',{colspan:'7',style:'padding:16px;text-align:center;color:var(--muted)'},['Nenhuma atividade interna cadastrada.'])]));
-    table.appendChild(tb);
-    return el('div',{class:'grid'},[
-      card('Cadastrar atividade interna', null, el('div',{class:'grid'},[
-        el('div',{class:'row'},[
-          el('div',{class:'field'},[el('label',{},['Tipo']), type]),
-          el('div',{class:'field',style:'flex:1;min-width:240px'},[el('label',{},['Título']), title]),
-          el('div',{class:'field'},[el('label',{},['Recurso']), resourceSel]),
-        ]),
-        el('div',{class:'row'},[
-          el('div',{class:'field'},[el('label',{},['Início']), ini]),
-          el('div',{class:'field'},[el('label',{},['Fim']), fim]),
-          el('div',{class:'field compact'},[el('label',{},['Horas/dia']), horas]),
-          el('div',{class:'field'},[el('label',{},['Controle']), contabiliza]),
-        ]),
-        el('div',{class:'field'},[el('label',{},['Observações']), obs]),
-        el('div',{class:'row end'},[button('Adicionar atividade','primary',add)]),
-      ])),
-      card('Atividades internas', null, el('div',{class:'scrollX'},[table]))
-    ]);
-  };
 
   const toDate = (iso) => {
     if (!iso) return new Date();
@@ -8094,6 +8021,81 @@ Dias 0h: ${m.daysZero} - Dias excedidos: ${m.daysOver}`;
     })()
   ]);
 };
+
+  const viewInternalActivities = () => {
+    const type = el('select', {}, [
+      el('option', { value:'Reunião administrativa' }, ['Reunião administrativa']),
+      el('option', { value:'Treinamento' }, ['Treinamento']),
+      el('option', { value:'Leitura/Estudo' }, ['Leitura/Estudo']),
+      el('option', { value:'Fórum/Comunidade' }, ['Fórum/Comunidade']),
+      el('option', { value:'Curso/Escola técnica' }, ['Curso/Escola técnica']),
+    ]);
+    const title = el('input', { placeholder:'Título da atividade' });
+    const resourceSel = el('select');
+    for (const r of (state.resources||[])) resourceSel.appendChild(el('option', { value:r.id }, [r.nome]));
+    const ini = el('input', { type:'date', value: todayISO() });
+    const fim = el('input', { type:'date', value: todayISO() });
+    const horas = el('input', { type:'number', min:'0', max:'24', step:'0.5', value:'1' });
+    const contabiliza = el('select', {}, [el('option', { value:'true' }, ['Contabiliza capacidade']), el('option', { value:'false' }, ['Apenas informativa'])]);
+    const obs = el('textarea', { placeholder:'Observações...' });
+    const add = () => {
+      if (!resourceSel.value) return toast('Cadastre/seleciona um recurso.');
+      if (!title.value.trim()) return toast('Informe o título da atividade interna.');
+      if (!ini.value || !fim.value || fim.value < ini.value) return toast('Período inválido.');
+      const hh = Number(horas.value || 0);
+      if (!Number.isFinite(hh) || hh < 0) return toast('Horas/dia inválidas.');
+      dispatch('ADD_INTERNAL_ACTIVITY', {
+        id: generateId('ia'),
+        resourceId: resourceSel.value,
+        tipo: type.value,
+        titulo: title.value.trim(),
+        data_inicio: ini.value,
+        data_fim: fim.value,
+        horas_dia: hh,
+        contabiliza_capacidade: contabiliza.value === 'true',
+        observacoes: obs.value || '',
+      });
+      title.value=''; horas.value='1'; obs.value='';
+      render();
+    };
+    const rows = (state.internalActivities||[]).slice().sort((a,b)=>String(b.data_inicio||'').localeCompare(String(a.data_inicio||'')));
+    const table = el('table');
+    table.appendChild(el('thead', {}, [el('tr', {}, ['Tipo','Título','Recurso','Período','Horas/dia','Capacidade','Ação'].map(h=>el('th',{},[h])))]));
+    const tb = el('tbody');
+    for (const a of rows) {
+      const r = (state.resources||[]).find(x=>String(x.id)===String(a.resourceId));
+      const tr = el('tr');
+      tr.appendChild(el('td',{},[String(a.tipo||'')]));
+      tr.appendChild(el('td',{},[String(a.titulo||'')]));
+      tr.appendChild(el('td',{},[r?.nome || String(a.resourceId||'')]));
+      tr.appendChild(el('td',{},[`${formatDateBR(a.data_inicio)} - ${formatDateBR(a.data_fim)}`]));
+      tr.appendChild(el('td',{},[`${Number(a.horas_dia||0).toFixed(1)}h`]));
+      tr.appendChild(el('td',{},[a.contabiliza_capacidade===false?'Não':'Sim']));
+      tr.appendChild(el('td',{},[button('Excluir','danger',()=>{dispatch('DELETE_INTERNAL_ACTIVITY', a.id); render();})]));
+      tb.appendChild(tr);
+    }
+    if (!rows.length) tb.appendChild(el('tr',{},[el('td',{colspan:'7',style:'padding:16px;text-align:center;color:var(--muted)'},['Nenhuma atividade interna cadastrada.'])]));
+    table.appendChild(tb);
+    return el('div',{class:'grid'},[
+      card('Cadastrar atividade interna', null, el('div',{class:'grid'},[
+        el('div',{class:'row'},[
+          el('div',{class:'field'},[el('label',{},['Tipo']), type]),
+          el('div',{class:'field',style:'flex:1;min-width:240px'},[el('label',{},['Título']), title]),
+          el('div',{class:'field'},[el('label',{},['Recurso']), resourceSel]),
+        ]),
+        el('div',{class:'row'},[
+          el('div',{class:'field'},[el('label',{},['Início']), ini]),
+          el('div',{class:'field'},[el('label',{},['Fim']), fim]),
+          el('div',{class:'field compact'},[el('label',{},['Horas/dia']), horas]),
+          el('div',{class:'field'},[el('label',{},['Controle']), contabiliza]),
+        ]),
+        el('div',{class:'field'},[el('label',{},['Observações']), obs]),
+        el('div',{class:'row end'},[button('Adicionar atividade','primary',add)]),
+      ])),
+      card('Atividades internas', null, el('div',{class:'scrollX'},[table]))
+    ]);
+  };
+
 
 
 
