@@ -5710,58 +5710,24 @@ function buildConsolidatedYearSeries(year) {
             ]));
             for (const d of days) {
               const dateStr = formatDate(d);
-              const val = dailyPercentAllocated(r.id, d);
               const heTotal = overtimeInfo(r.id, dateStr).total;
-              const holidayDay = isHoliday(dateStr);
-              const statusVal = holidayDay && val === -5 ? -2 : val;
               const freeInfo = CapacityEngine.freeHoursInfo(r.id, d);
               const freeHours = Number(freeInfo.free || 0);
               const capacityHours = Number(freeInfo.capacity || 0);
-              let cls = 'cell';
-              let top = '';
-              let sub = '';
+              const allocatedHours = Number(freeInfo.allocated || 0);
+              const pctAllocated = capacityHours > 0 ? Math.max(0, (allocatedHours / capacityHours) * 100) : 0;
+              const nonWorkingDay = freeInfo.eligible === false;
+              let cls = `cell ${freeInfo.cls || ''}`.trim();
+              let top = `${Math.round(pctAllocated)}%`;
+              let sub = `${freeHours.toFixed(1)}h livre`;
 
-              if (statusVal === -5) {
-                cls += ' bg-wknd nonWork';
+              if (nonWorkingDay && heTotal <= 0) {
                 top = '0%';
-                sub = '';
-              } else if (statusVal === -1) {
-                cls += ' bg-block nonWork';
-                top = '0%';
-                sub = '';
-              } else if (statusVal === -4) {
-                cls += ' bg-vac nonWork';
-                top = '0%';
-                sub = '';
-              } else if (statusVal === -2) {
-                cls += ' bg-holiday nonWork';
-                top = '0%';
-                sub = '';
-              } else if (statusVal === -3) {
-                cls += ' bg-off nonWork';
-                top = '0%';
-                sub = '';
-              } else {
-                const p = capacityHours > 0 ? Math.max(0, (Number(freeInfo.allocated||0) / capacityHours) * 100) : 0;
-                top = `${Math.round(p)}%`;
-                sub = `${freeHours.toFixed(1)}h livre`;
-                if (p >= 200) cls += ' bg-over bg-over-high';
-                else if (p > 100) cls += ' bg-over';
-                else if (capacityHours > 0 && freeHours <= capacityHours * 0.2) cls += ' bg-mid';
-                else cls += ' bg-ok';
-              }
-
-              if (Number(statusVal||0) <= 0 && !sub) {
-                const specialLabel = statusVal === -5 ? 'FDS' :
-                  statusVal === -1 ? 'BLOQ' :
-                  statusVal === -4 ? 'FÉR' :
-                  statusVal === -2 ? 'FER' :
-                  statusVal === -3 ? 'OFF' : '';
-                sub = heTotal > 0 ? `${freeHours.toFixed(1)}h livre` : specialLabel;
+                sub = String(freeInfo.tag || '').trim() || '-';
               }
 
               // Mantém destaque visual para fim de semana; só contabiliza se houver HE.
-              if (!holidayDay && isWeekend(d)) cls += ' bg-wknd nonWork';
+              if (!isHoliday(dateStr) && isWeekend(d)) cls += ' bg-wknd nonWork';
               if (heTotal > 0) {
                 cls += ' has-he';
                 // HE vira badge discreto; o tipo do dia continua legível.
