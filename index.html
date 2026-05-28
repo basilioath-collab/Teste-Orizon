@@ -1229,6 +1229,7 @@ main{padding:14px;overflow-x:hidden}
     schemaVersion: '0.2',
     resources: Array.isArray(obj?.resources) ? obj.resources : [],
     demands: normalizeDemandsV02(obj?.demands),
+    internalActivities: Array.isArray(obj?.internalActivities) ? obj.internalActivities : [],
     blockings: Array.isArray(obj?.blockings) ? obj.blockings : [],
     holidays: Array.isArray(obj?.holidays) ? obj.holidays : [],
     reprogrammings: Array.isArray(obj?.reprogrammings) ? obj.reprogrammings : [],
@@ -1243,7 +1244,7 @@ main{padding:14px;overflow-x:hidden}
   };
 
 
-  const DB_COLLECTION_KEYS = ['resources','demands','blockings','holidays','reprogrammings','overtimes','events'];
+  const DB_COLLECTION_KEYS = ['resources','demands','internalActivities','blockings','holidays','reprogrammings','overtimes','events'];
   const stableStringify = (value) => {
     const seen = new WeakSet();
     const sortAny = (v) => {
@@ -2090,6 +2091,7 @@ main{padding:14px;overflow-x:hidden}
   const defaultState = () => ({
     resources: [],
     demands: [],
+    internalActivities: [],
     blockings: [],
     holidays: [],
     reprogrammings: [],
@@ -3082,6 +3084,20 @@ main{padding:14px;overflow-x:hidden}
     const allocs = normalizeDemandAllocations(demand);
     return allocs.length ? allocs : [];
   };
+  const internalActivityHoursForDay = (resourceId, dateObj) => {
+    const dateStr = formatDate(dateObj);
+    let total = 0;
+    for (const a of (state.internalActivities || [])) {
+      if (a?.contabiliza_capacidade === false) continue;
+      if (String(a?.resourceId || '') !== String(resourceId || '')) continue;
+      const ini = String(a?.data_inicio || '');
+      const fim = String(a?.data_fim || ini);
+      if (!ini) continue;
+      if (dateStr < ini || dateStr > fim) continue;
+      total += Math.max(0, Number(a?.horas_dia || 0));
+    }
+    return total;
+  };
   const validateDemandAllocationLimits = (allocations=[]) => {
     const list = Array.isArray(allocations) ? allocations : [];
     for (const a of list) {
@@ -3255,6 +3271,22 @@ main{padding:14px;overflow-x:hidden}
         eventPayload = stamped;
         break;
       }
+      case 'ADD_INTERNAL_ACTIVITY': {
+        const stamped = applyCreateMeta(payload);
+        state.internalActivities.unshift(stamped);
+        eventPayload = stamped;
+        break;
+      }
+      case 'UPDATE_INTERNAL_ACTIVITY': {
+        const prev = (state.internalActivities||[]).find(x => x.id === payload.id);
+        const stamped = applyUpdateMeta(payload, prev);
+        state.internalActivities = (state.internalActivities||[]).map(x => x.id === stamped.id ? stamped : x);
+        eventPayload = stamped;
+        break;
+      }
+      case 'DELETE_INTERNAL_ACTIVITY':
+        state.internalActivities = (state.internalActivities||[]).filter(x => String(x.id) !== String(payload));
+        break;
       case 'UPDATE_DEMAND': {
         const prev = (state.demands||[]).find(d => d.id === payload.id);
         const stamped = applyUpdateMeta(payload, prev);
@@ -3354,6 +3386,9 @@ main{padding:14px;overflow-x:hidden}
         case 'UPDATE_RESOURCE': rebuilt.resources = rebuilt.resources.map(r => r.id === payload.id ? payload : r); break;
         case 'DELETE_RESOURCE': removeResourceCascade(rebuilt, payload); break;
         case 'ADD_DEMAND': rebuilt.demands.push(payload); break;
+        case 'ADD_INTERNAL_ACTIVITY': rebuilt.internalActivities.push(payload); break;
+        case 'UPDATE_INTERNAL_ACTIVITY': rebuilt.internalActivities = rebuilt.internalActivities.map(x => x.id === payload.id ? payload : x); break;
+        case 'DELETE_INTERNAL_ACTIVITY': rebuilt.internalActivities = rebuilt.internalActivities.filter(x => String(x.id) !== String(payload)); break;
         case 'UPDATE_DEMAND': rebuilt.demands = rebuilt.demands.map(d => d.id === payload.id ? payload : d); break;
         case 'DELETE_DEMAND': rebuilt.demands = rebuilt.demands.filter(d => String(d.id) !== String(payload)); break;
         case 'DELETE_DEMANDS': rebuilt.demands = rebuilt.demands.filter(d => !demandMatchesDeletePayload(d, payload)); break;
@@ -3559,6 +3594,8 @@ main{padding:14px;overflow-x:hidden}
       case 'ADD_RESOURCE': case 'UPDATE_RESOURCE': target.resources = upsert(target.resources, payload); break;
       case 'DELETE_RESOURCE': removeResourceCascade(target, payload); break;
       case 'ADD_DEMAND': case 'UPDATE_DEMAND': target.demands = upsert(target.demands, payload); break;
+      case 'ADD_INTERNAL_ACTIVITY': case 'UPDATE_INTERNAL_ACTIVITY': target.internalActivities = upsert(target.internalActivities, payload); break;
+      case 'DELETE_INTERNAL_ACTIVITY': target.internalActivities = (target.internalActivities||[]).filter(x => String(x.id) !== String(payload)); break;
       case 'DELETE_DEMAND': target.demands = (target.demands||[]).filter(d => String(d.id) !== String(payload)); break;
       case 'DELETE_DEMANDS': target.demands = (target.demands||[]).filter(d => !demandMatchesDeletePayload(d, payload)); break;
       case 'REPROGRAM_DEMAND': {
@@ -3940,7 +3977,9 @@ main{padding:14px;overflow-x:hidden}
       const base = blockedNoHe ? 0 : getResourceHoursPerDay(res);
       const capacity = Math.max(0, Number(base || 0)) + otHours;
       const perc = this.dailyPercentAllocated(resourceId, dateObj);
-      const allocated = Math.max(0, Number(perc || 0)) / 100 * getResourceHoursPerDay(res);
+      const allocatedFromDemandsHH = Math.max(0, Number(perc || 0)) / 100 * getResourceHoursPerDay(res);
+      const allocatedFromInternalHH = internalActivityHoursForDay(resourceId, dateObj);
+      const allocated = allocatedFromDemandsHH + allocatedFromInternalHH;
       const free = capacity - allocated;
 
       let cls = '';
@@ -3953,7 +3992,7 @@ main{padding:14px;overflow-x:hidden}
       const tag = this.isHoliday(dateStr) ? 'FER' :
         ((isWeekend(dateObj) && otHours > 0) ? `HE ${otHours}h` : (perc > 0 ? `-${allocated.toFixed(1)}h` : 'livre'));
 
-      return { dateStr, capacity, allocated, free, tag, cls, eligible: true, overtime: otInfo };
+      return { dateStr, capacity, allocated, allocatedFromDemandsHH, allocatedFromInternalHH, free, tag, cls, eligible: true, overtime: otInfo };
     }
   };
 
@@ -7033,7 +7072,7 @@ const svg = buildCapacityVsPlannedSvg({ title: 'Ocupação Consolidada - Ano', s
   };
 
   
-const viewWindows = () => {
+  const viewWindows = () => {
   // Matriz de Janelas (janela deslizante, sem limite de período) + Próxima Janela Livre
 
   // Heatmap mensal (Recursos × Meses) + Drilldown em barras (Top 10 / Todos)
@@ -7071,6 +7110,80 @@ const viewWindows = () => {
   const clampDays = (n) => {
     const v = Math.max(1, Math.min(365, Number(n||14)));
     return isFinite(v) ? v : 14;
+  };
+
+  const viewInternalActivities = () => {
+    const type = el('select', {}, [
+      el('option', { value:'Reunião administrativa' }, ['Reunião administrativa']),
+      el('option', { value:'Treinamento' }, ['Treinamento']),
+      el('option', { value:'Leitura/Estudo' }, ['Leitura/Estudo']),
+      el('option', { value:'Fórum/Comunidade' }, ['Fórum/Comunidade']),
+      el('option', { value:'Curso/Escola técnica' }, ['Curso/Escola técnica']),
+    ]);
+    const title = el('input', { placeholder:'Título da atividade' });
+    const resourceSel = el('select');
+    for (const r of (state.resources||[])) resourceSel.appendChild(el('option', { value:r.id }, [r.nome]));
+    const ini = el('input', { type:'date', value: todayISO() });
+    const fim = el('input', { type:'date', value: todayISO() });
+    const horas = el('input', { type:'number', min:'0', max:'24', step:'0.5', value:'1' });
+    const contabiliza = el('select', {}, [el('option', { value:'true' }, ['Contabiliza capacidade']), el('option', { value:'false' }, ['Apenas informativa'])]);
+    const obs = el('textarea', { placeholder:'Observações...' });
+    const add = () => {
+      if (!resourceSel.value) return toast('Cadastre/seleciona um recurso.');
+      if (!title.value.trim()) return toast('Informe o título da atividade interna.');
+      if (!ini.value || !fim.value || fim.value < ini.value) return toast('Período inválido.');
+      const hh = Number(horas.value || 0);
+      if (!Number.isFinite(hh) || hh < 0) return toast('Horas/dia inválidas.');
+      dispatch('ADD_INTERNAL_ACTIVITY', {
+        id: generateId('ia'),
+        resourceId: resourceSel.value,
+        tipo: type.value,
+        titulo: title.value.trim(),
+        data_inicio: ini.value,
+        data_fim: fim.value,
+        horas_dia: hh,
+        contabiliza_capacidade: contabiliza.value === 'true',
+        observacoes: obs.value || '',
+      });
+      title.value=''; horas.value='1'; obs.value='';
+      render();
+    };
+    const rows = (state.internalActivities||[]).slice().sort((a,b)=>String(b.data_inicio||'').localeCompare(String(a.data_inicio||'')));
+    const table = el('table');
+    table.appendChild(el('thead', {}, [el('tr', {}, ['Tipo','Título','Recurso','Período','Horas/dia','Capacidade','Ação'].map(h=>el('th',{},[h])))]));
+    const tb = el('tbody');
+    for (const a of rows) {
+      const r = (state.resources||[]).find(x=>String(x.id)===String(a.resourceId));
+      const tr = el('tr');
+      tr.appendChild(el('td',{},[String(a.tipo||'')]));
+      tr.appendChild(el('td',{},[String(a.titulo||'')]));
+      tr.appendChild(el('td',{},[r?.nome || String(a.resourceId||'')]));
+      tr.appendChild(el('td',{},[`${formatDateBR(a.data_inicio)} - ${formatDateBR(a.data_fim)}`]));
+      tr.appendChild(el('td',{},[`${Number(a.horas_dia||0).toFixed(1)}h`]));
+      tr.appendChild(el('td',{},[a.contabiliza_capacidade===false?'Não':'Sim']));
+      tr.appendChild(el('td',{},[button('Excluir','danger',()=>{dispatch('DELETE_INTERNAL_ACTIVITY', a.id); render();})]));
+      tb.appendChild(tr);
+    }
+    if (!rows.length) tb.appendChild(el('tr',{},[el('td',{colspan:'7',style:'padding:16px;text-align:center;color:var(--muted)'},['Nenhuma atividade interna cadastrada.'])]));
+    table.appendChild(tb);
+    return el('div',{class:'grid'},[
+      card('Cadastrar atividade interna', null, el('div',{class:'grid'},[
+        el('div',{class:'row'},[
+          el('div',{class:'field'},[el('label',{},['Tipo']), type]),
+          el('div',{class:'field',style:'flex:1;min-width:240px'},[el('label',{},['Título']), title]),
+          el('div',{class:'field'},[el('label',{},['Recurso']), resourceSel]),
+        ]),
+        el('div',{class:'row'},[
+          el('div',{class:'field'},[el('label',{},['Início']), ini]),
+          el('div',{class:'field'},[el('label',{},['Fim']), fim]),
+          el('div',{class:'field compact'},[el('label',{},['Horas/dia']), horas]),
+          el('div',{class:'field'},[el('label',{},['Controle']), contabiliza]),
+        ]),
+        el('div',{class:'field'},[el('label',{},['Observações']), obs]),
+        el('div',{class:'row end'},[button('Adicionar atividade','primary',add)]),
+      ])),
+      card('Atividades internas', null, el('div',{class:'scrollX'},[table]))
+    ]);
   };
 
   const toDate = (iso) => {
@@ -8899,6 +9012,7 @@ return el('div', { class:'grid' }, [
     { id:'calendar', label:'Bloqueio de Janela', icon:'📅' },
     { id:'he', label:'Horas Extras (HE)', icon:'⏱' },
     { id:'windows', label:'Janelas Livres', icon:'🔎' },
+    { id:'internal', label:'Atividades Internas', icon:'🧩' },
     { id:'consolidation', label:'Sincronização de BD', icon:'📦' },
   ];
 
@@ -8926,6 +9040,7 @@ return el('div', { class:'grid' }, [
     else if (activeTab === 'calendar') view = viewCalendar();
     else if (activeTab === 'he') view = viewOvertime();
     else if (activeTab === 'windows') view = viewWindows();
+    else if (activeTab === 'internal') view = viewInternalActivities();
     else if (activeTab === 'consolidation') view = viewConsolidation();
     else view = el('div', {}, ['Aba inválida.']);
 
