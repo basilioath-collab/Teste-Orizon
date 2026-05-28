@@ -1129,6 +1129,17 @@ main{padding:14px;overflow-x:hidden}
     }
     return s;
   };
+  const normalizeDateLikeToISO = (value) => {
+    const s = String(value || '').trim();
+    if (!s) return '';
+    const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+    const br = s.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+    if (br) return `${br[3]}-${br[2]}-${br[1]}`;
+    const d = new Date(s);
+    if (Number.isNaN(d.getTime())) return '';
+    return formatDate(d);
+  };
   const getDaysInMonth = (year, month) => {
     const date = new Date(year, month, 1);
     const days = [];
@@ -3110,8 +3121,8 @@ main{padding:14px;overflow-x:hidden}
       );
       if (!matchesResource) return false;
 
-      const ini = String(a?.data_inicio || a?.dataInicio || a?.start_date || a?.data || '').trim();
-      const fim = String(a?.data_fim || a?.dataFim || a?.end_date || ini || a?.data || '').trim();
+      const ini = normalizeDateLikeToISO(a?.data_inicio || a?.dataInicio || a?.start_date || a?.data || '');
+      const fim = normalizeDateLikeToISO(a?.data_fim || a?.dataFim || a?.end_date || ini || a?.data || '') || ini;
       if (!ini) return false;
       return dateStr >= ini && dateStr <= fim;
     });
