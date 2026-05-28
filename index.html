@@ -4058,14 +4058,12 @@ main{padding:14px;overflow-x:hidden}
     // sempre começa na primeira página ao abrir o modal
     uiPagination.dayModalPage = 1;
 
-    let allocPerc = 0;
-    for (const d of visibleDemands) {
-      const st = effectiveStatus(d);
-      if (!STATUS_COUNTS_IN_ALLOCATION.has(st)) continue;
-      allocPerc += Number(d.percentual_diario||0);
-    }
-    const allocHH = (allocPerc/100) * HOURS_PER_DAY;
-    const capFinal = dailyCapacityWithOvertime(resourceId, dateObj);
+    const freeInfoDay = CapacityEngine.freeHoursInfo(resourceId, dateObj);
+    const capFinal = Number(freeInfoDay.capacity || 0);
+    const allocFromDemandsHH = Number(freeInfoDay.allocatedFromDemandsHH || 0);
+    const allocFromInternalHH = Number(freeInfoDay.allocatedFromInternalHH || 0);
+    const allocTotalHH = Number(freeInfoDay.allocated || 0);
+    const allocTotalPct = capFinal > 0 ? (allocTotalHH / capFinal) * 100 : 0;
 
     const summaryBadges = [];
     if (heInfo.total > 0) {
@@ -4073,8 +4071,12 @@ main{padding:14px;overflow-x:hidden}
     }
     if (!nonWorkingReason) {
       summaryBadges.push(el('span', { class:'pill' }, [el('span', { class:'dot bg-ok' }), `${totalDemands} demandas`]));
-      summaryBadges.push(el('span', { class:'pill' }, [el('span', { class:'dot bg-mid' }), `${Math.max(0, Math.round(allocPerc))}% alocado (conta)`]));
-      summaryBadges.push(el('span', { class:'pill' }, [el('span', { class:'dot bg-holiday' }), `${allocHH.toFixed(1)}h de ${capFinal.toFixed(1)}h`]));
+      summaryBadges.push(el('span', { class:'pill' }, [el('span', { class:'dot bg-mid' }), `${Math.max(0, Math.round(allocTotalPct))}% alocado total (conta)`]));
+      summaryBadges.push(el('span', { class:'pill' }, [el('span', { class:'dot bg-holiday' }), `${allocTotalHH.toFixed(1)}h de ${capFinal.toFixed(1)}h`]));
+      if (allocFromInternalHH > 0) {
+        summaryBadges.push(el('span', { class:'pill' }, [el('span', { class:'dot bg-vac' }), `Atividade interna: ${allocFromInternalHH.toFixed(1)}h`]));
+      }
+      summaryBadges.push(el('span', { class:'pill' }, [el('span', { class:'dot bg-ok' }), `Demandas: ${allocFromDemandsHH.toFixed(1)}h`]));
     } else if (heInfo.total <= 0) {
       const reasonDotClass = nonWorkingReason?.label === 'FER' ? 'bg-holiday' :
         nonWorkingReason?.label === 'FÉR' ? 'bg-vac' :
@@ -5696,8 +5698,8 @@ function buildConsolidatedYearSeries(year) {
                 top = '0%';
                 sub = '';
               } else {
-                const p = Number(statusVal||0);
-                top = `${p}%`;
+                const p = capacityHours > 0 ? Math.max(0, (Number(freeInfo.allocated||0) / capacityHours) * 100) : 0;
+                top = `${Math.round(p)}%`;
                 sub = `${freeHours.toFixed(1)}h livre`;
                 if (p >= 200) cls += ' bg-over bg-over-high';
                 else if (p > 100) cls += ' bg-over';
