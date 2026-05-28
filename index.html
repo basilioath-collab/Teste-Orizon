@@ -3084,19 +3084,22 @@ main{padding:14px;overflow-x:hidden}
     const allocs = normalizeDemandAllocations(demand);
     return allocs.length ? allocs : [];
   };
-  const internalActivityHoursForDay = (resourceId, dateObj) => {
+  const internalActivitiesForResourceOnDate = (resourceId, dateObj, { onlyCapacity=true } = {}) => {
     const dateStr = formatDate(dateObj);
-    let total = 0;
-    for (const a of (state.internalActivities || [])) {
-      if (a?.contabiliza_capacidade === false) continue;
-      if (String(a?.resourceId || '') !== String(resourceId || '')) continue;
-      const ini = String(a?.data_inicio || '');
-      const fim = String(a?.data_fim || ini);
-      if (!ini) continue;
-      if (dateStr < ini || dateStr > fim) continue;
-      total += Math.max(0, Number(a?.horas_dia || 0));
-    }
-    return total;
+    const rid = String(resourceId || '');
+    return (state.internalActivities || []).filter((a) => {
+      if (onlyCapacity && a?.contabiliza_capacidade === false) return false;
+      const allocRid = String(a?.resourceId || a?.responsavel_id || a?.responsible_id || '');
+      if (!rid || allocRid !== rid) return false;
+      const ini = String(a?.data_inicio || a?.data || '');
+      const fim = String(a?.data_fim || ini || a?.data || '');
+      if (!ini) return false;
+      return dateStr >= ini && dateStr <= fim;
+    });
+  };
+  const internalActivityHoursForDay = (resourceId, dateObj) => {
+    return internalActivitiesForResourceOnDate(resourceId, dateObj, { onlyCapacity:true })
+      .reduce((acc, a) => acc + Math.max(0, Number(a?.horas_dia || a?.horas || 0)), 0);
   };
   const validateDemandAllocationLimits = (allocations=[]) => {
     const list = Array.isArray(allocations) ? allocations : [];
@@ -4046,6 +4049,7 @@ main{padding:14px;overflow-x:hidden}
     qs('#dayModalSub').textContent = `${weekday}${meta.length ? ' ? ' + meta.join(' ? ') : ''}`;
 
     const demands = demandsForResourceOnDate(resourceId, dateStr);
+    const internalActivities = internalActivitiesForResourceOnDate(resourceId, dateObj, { onlyCapacity:true });
     const heInfo = overtimeInfo(resourceId, dateStr);
     const nonWorkingReason = nonWorkingReasonForDay(resourceId, dateObj);
 
@@ -4075,6 +4079,7 @@ main{padding:14px;overflow-x:hidden}
       summaryBadges.push(el('span', { class:'pill' }, [el('span', { class:'dot bg-holiday' }), `${allocTotalHH.toFixed(1)}h de ${capFinal.toFixed(1)}h`]));
       if (allocFromInternalHH > 0) {
         summaryBadges.push(el('span', { class:'pill' }, [el('span', { class:'dot bg-vac' }), `Atividade interna: ${allocFromInternalHH.toFixed(1)}h`]));
+        summaryBadges.push(el('span', { class:'pill' }, [el('span', { class:'dot bg-vac' }), `${internalActivities.length} atividade(s) interna(s)`]));
       }
       summaryBadges.push(el('span', { class:'pill' }, [el('span', { class:'dot bg-ok' }), `Demandas: ${allocFromDemandsHH.toFixed(1)}h`]));
     } else if (heInfo.total <= 0) {
@@ -4144,6 +4149,9 @@ main{padding:14px;overflow-x:hidden}
         for (const d of pageItems) {
           const st = effectiveStatus(d);
           const counts = STATUS_COUNTS_IN_ALLOCATION.has(st);
+          const allocPctForResource = demandAllocations(d)
+            .filter(a => String(a.resourceId || '') === String(resourceId || ''))
+            .reduce((acc, a) => acc + Number(a.percentual_diario || 0), 0);
           const tr = el('tr');
           if (st === 'Atrasada') tr.classList.add('overdueRow');
           tr.appendChild(el('td', {}, [
@@ -4151,12 +4159,29 @@ main{padding:14px;overflow-x:hidden}
             el('div', { class:'tiny' }, [counts ? 'Conta na alocação' : 'Não conta na alocação'])
           ]));
           tr.appendChild(el('td', {}, [statusPill(d)]));
-          tr.appendChild(el('td', {}, [String(d.percentual_diario||0)]));
+          tr.appendChild(el('td', {}, [String(Math.max(0, allocPctForResource))]));
           tr.appendChild(el('td', {}, [d.predio||'-']));
           tr.appendChild(el('td', {}, [d.focal||'-']));
           tr.appendChild(el('td', {}, [resourceById()[d.responsavel_id]?.nome || '-']));
           tr.appendChild(el('td', { class:'mono tiny' }, [`${formatDateBR(d.data_inicio)} - ${formatDateBR(d.data_fim)}`]));
           tb.appendChild(tr);
+        }
+
+        for (const ia of internalActivities) {
+          const iaTitle = String(ia.titulo || ia.tipo || 'Atividade interna').trim();
+          const iaHours = Math.max(0, Number(ia.horas_dia || ia.horas || 0));
+          const trIa = el('tr');
+          trIa.appendChild(el('td', {}, [
+            el('div', { style:'font-weight:950;color:#6d3bdb' }, [`Interna - ${iaTitle}`]),
+            el('div', { class:'tiny' }, [ia.observacoes ? `Obs: ${ia.observacoes}` : 'Atividade interna contabilizada na capacidade'])
+          ]));
+          trIa.appendChild(el('td', {}, [el('span', { class:'statusPill s-andamento' }, [el('span', { class:'sDot' }), 'Atividade interna'])]));
+          trIa.appendChild(el('td', { class:'mono' }, [String(Math.round((capFinal > 0 ? (iaHours / capFinal) * 100 : 0) * 10) / 10)]));
+          trIa.appendChild(el('td', {}, ['-']));
+          trIa.appendChild(el('td', {}, ['-']));
+          trIa.appendChild(el('td', {}, [res?.nome || '-']));
+          trIa.appendChild(el('td', { class:'mono tiny' }, [`${formatDateBR(ia.data_inicio || dateStr)} - ${formatDateBR(ia.data_fim || ia.data_inicio || dateStr)}`]));
+          tb.appendChild(trIa);
         }
 
         for (const x of heInfo.items) {
