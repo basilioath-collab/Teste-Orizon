@@ -2159,11 +2159,20 @@ main{padding:14px;overflow-x:hidden}
     return found || raw;
   };
 
-  const parseApontamentoHours = (value) => {
-    const normalized = String(value ?? '').replace(',', '.').trim();
+  const parseHoursInput = (value) => {
+    const raw = String(value ?? '').trim();
+    if (!raw) return NaN;
+    const hhmm = raw.match(/^(\d{1,2}):([0-5]\d)$/);
+    if (hhmm) {
+      const hh = Number(hhmm[1] || 0);
+      const mm = Number(hhmm[2] || 0);
+      return Math.round((hh + (mm / 60)) * 100) / 100;
+    }
+    const normalized = raw.replace(',', '.');
     const n = Number(normalized);
     return Number.isFinite(n) ? Math.round(n * 100) / 100 : NaN;
   };
+  const parseApontamentoHours = (value) => parseHoursInput(value);
 
   const isISODateString = (value) => /^\d{4}-\d{2}-\d{2}$/.test(String(value || '').trim());
 
@@ -4424,7 +4433,7 @@ main{padding:14px;overflow-x:hidden}
     const aptData = el('input', { type:'date', value: todayISO() });
     const aptEtapa = el('select');
     for (const step of PROJECT_STEP_OPTIONS) aptEtapa.appendChild(el('option', { value:step }, [step]));
-    const aptHoras = el('input', { type:'number', min:'0.25', max:'24', step:'0.25', placeholder:'Ex: 2.5' });
+    const aptHoras = el('input', { type:'text', inputmode:'decimal', placeholder:'Ex: 02:30 ou 2.5' });
     const aptObs = el('input', { placeholder:'Observação do apontamento...' });
     const aptList = el('div');
     const aptSummary = el('div', { class:'tiny muted' });
@@ -4792,7 +4801,7 @@ main{padding:14px;overflow-x:hidden}
     const data = el('input', { type:'date', value: todayISO() });
     const etapa = el('select');
     for (const step of PROJECT_STEP_OPTIONS) etapa.appendChild(el('option', { value:step }, [step]));
-    const horas = el('input', { type:'number', min:'0.25', max:'24', step:'0.25', placeholder:'Ex: 2.5' });
+    const horas = el('input', { type:'text', inputmode:'decimal', placeholder:'Ex: 02:30 ou 2.5' });
     const obs = el('textarea', { placeholder:'Descreva rapidamente a atividade realizada...', style:'min-height:92px' });
     const history = el('div');
     const summary = el('div', { class:'tiny muted' });
@@ -8058,15 +8067,16 @@ Dias 0h: ${m.daysZero} - Dias excedidos: ${m.daysOver}`;
     for (const r of (state.resources||[])) resourceSel.appendChild(el('option', { value:r.id }, [r.nome]));
     const ini = el('input', { type:'date', value: todayISO() });
     const fim = el('input', { type:'date', value: todayISO() });
-    const horas = el('input', { type:'number', min:'0', max:'24', step:'0.5', value:'1' });
+    const horas = el('input', { type:'text', inputmode:'decimal', value:'01:00', placeholder:'Ex: 01:30 ou 1.5' });
     const contabiliza = el('select', {}, [el('option', { value:'true' }, ['Contabiliza capacidade']), el('option', { value:'false' }, ['Apenas informativa'])]);
     const obs = el('textarea', { placeholder:'Observações...' });
     const add = () => {
       if (!resourceSel.value) return toast('Cadastre/seleciona um recurso.');
       if (!title.value.trim()) return toast('Informe o título da atividade interna.');
       if (!ini.value || !fim.value || fim.value < ini.value) return toast('Período inválido.');
-      const hh = Number(horas.value || 0);
+      const hh = parseHoursInput(horas.value);
       if (!Number.isFinite(hh) || hh < 0) return toast('Horas/dia inválidas.');
+      if (hh > 24) return toast('Horas/dia não pode ser maior que 24h.');
       dispatch('ADD_INTERNAL_ACTIVITY', {
         id: generateId('ia'),
         resourceId: resourceSel.value,
@@ -8078,7 +8088,7 @@ Dias 0h: ${m.daysZero} - Dias excedidos: ${m.daysOver}`;
         contabiliza_capacidade: contabiliza.value === 'true',
         observacoes: obs.value || '',
       });
-      title.value=''; horas.value='1'; obs.value='';
+      title.value=''; horas.value='01:00'; obs.value='';
       render();
     };
     const rows = (state.internalActivities||[]).slice().sort((a,b)=>String(b.data_inicio||'').localeCompare(String(a.data_inicio||'')));
