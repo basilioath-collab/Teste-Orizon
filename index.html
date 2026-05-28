@@ -1707,6 +1707,14 @@ main{padding:14px;overflow-x:hidden}
   };
 
   const hasDbBinding = () => String(dbBinding?.mode || 'none') !== 'none';
+  const hasDbReconnectNeeded = () => {
+    if (capviewEventMode?.enabled) return false;
+    const reason = String(dbAutoSyncPauseReason || '').trim();
+    if (!reason) return false;
+    if (!/(v[ií]nculo|inv[aá]lid|permiss|arquivo|json|notfound|security|selecion)/i.test(reason)) return false;
+    const mode = String(dbBinding?.mode || 'none');
+    return mode === 'rw' || !!dbBinding?.name || !!dbPathValue;
+  };
 
   const clearOrizonLocalStorage = () => {
     try {
@@ -1830,6 +1838,8 @@ main{padding:14px;overflow-x:hidden}
       lastLoadedAt:new Date().toISOString(),
     }, null, null);
   };
+
+  let selectDbReadWrite = async () => false;
 
   const recoverDbHandleByReselect = async (reason='') => {
     clearDbHandleOnly();
@@ -8237,6 +8247,7 @@ return el('div', { class:'grid' }, [
         baselineLastModified: Number(fileMeta?.lastModified || 0),
         baselineSize: Number(fileMeta?.size || String(txt||'').length || 0),
       }, handle, applied);
+      clearDbAutoSyncPause();
     };
 
     const importSnapshot = async (file) => {
@@ -8286,7 +8297,7 @@ return el('div', { class:'grid' }, [
       inp.click();
     });
 
-    const selectDbReadWrite = async () => {
+    selectDbReadWrite = async () => {
       try {
         if (!canUseFileSystemAccess()) {
           toast('Seu navegador não permite vínculo ler/gravar direto. Abrindo importação em somente leitura.');
@@ -9062,6 +9073,39 @@ return el('div', { class:'grid' }, [
     }
   };
 
+  const goToDbSync = () => { activeTab = 'consolidation'; render(); };
+  const selectDbFromAnyView = () => {
+    if (activeTab !== 'consolidation') {
+      activeTab = 'consolidation';
+      render();
+    }
+    return selectDbReadWrite();
+  };
+
+  const renderNoDbBanner = () => el('div', { class:'globalDbWarn', style:'margin-bottom:14px' }, [
+    el('div', { style:'font-weight:950' }, ['Nenhum BD Vinculado']),
+    dbPathValue
+      ? el('span', { class:'tiny', style:'display:block;margin-top:4px' }, ['Caminho salvo: ', el('span', { class:'mono' }, [dbPathValue])])
+      : el('span', { class:'tiny', style:'display:block;margin-top:4px' }, ['Selecione o arquivo JSON oficial da pasta de rede para salvar e sincronizar as alterações.']),
+    el('div', { class:'row', style:'margin-top:10px;gap:8px;flex-wrap:wrap' }, [
+      button('Selecionar BD', 'primary', selectDbFromAnyView),
+      activeTab !== 'consolidation' ? button('Ir para Sincronização de BD', '', goToDbSync) : null,
+    ].filter(Boolean))
+  ]);
+
+  const renderDbReconnectBanner = () => el('div', { class:'globalDbWarn', style:'margin-bottom:14px' }, [
+    el('div', { style:'font-weight:950' }, ['BD desconectado ou vínculo inválido']),
+    el('span', { class:'tiny', style:'display:block;margin-top:4px' }, [
+      'O autosync foi pausado e suas alterações locais foram mantidas. Selecione novamente o JSON oficial para reconectar.',
+      dbAutoSyncPauseReason ? ' Motivo: ' + dbAutoSyncPauseReason + '.' : ''
+    ]),
+    dbBinding?.name ? el('span', { class:'tiny mono', style:'display:block;margin-top:4px' }, ['Último BD: ', dbBinding.name]) : null,
+    el('div', { class:'row', style:'margin-top:10px;gap:8px;flex-wrap:wrap' }, [
+      button('Reconectar BD', 'primary', selectDbFromAnyView),
+      activeTab !== 'consolidation' ? button('Ir para Sincronização de BD', '', goToDbSync) : null,
+    ].filter(Boolean))
+  ].filter(Boolean));
+
   const render = () => {
     renderTabs();
     const root = qs('#app');
@@ -9079,11 +9123,10 @@ return el('div', { class:'grid' }, [
     else if (activeTab === 'consolidation') view = viewConsolidation();
     else view = el('div', {}, ['Aba inválida.']);
 
-    if (!hasDbBinding()) {
-      root.appendChild(el('div', { class:'globalDbWarn', style:'margin-bottom:14px' }, [
-        'Nenhum BD Vinculado',
-        dbPathValue ? el('span', { class:'tiny', style:'display:block;margin-top:4px' }, ['Caminho salvo: ', el('span', { class:'mono' }, [dbPathValue])]) : el('span', { class:'tiny', style:'display:block;margin-top:4px' }, ['Vá em ', el('b', {}, ['Sincronização de BD']), ' > ', el('b', {}, ['Banco de Dados']), ' e selecione o arquivo da pasta de rede.'])
-      ]));
+    if (hasDbReconnectNeeded()) {
+      root.appendChild(renderDbReconnectBanner());
+    } else if (!hasDbBinding()) {
+      root.appendChild(renderNoDbBanner());
     }
 
     root.appendChild(view);
