@@ -455,8 +455,8 @@ main{padding:14px;overflow-x:hidden}
 .eventFolderStatus .eventFolderDot{width:10px;height:10px;border-radius:999px;background:#DC2626;box-shadow:0 0 0 3px rgba(220,38,38,.18)}
 .eventFolderStatus.connected{background:rgba(166,226,46,.16);border-color:rgba(166,226,46,.72);color:#fff}
 .eventFolderStatus.connected .eventFolderDot{background:#A6E22E;box-shadow:0 0 0 3px rgba(166,226,46,.20)}
-.eventFolderStatus.reconnect{background:rgba(245,158,11,.20);border-color:rgba(245,158,11,.75);color:#fff}
-.eventFolderStatus.reconnect .eventFolderDot{background:#F59E0B;box-shadow:0 0 0 3px rgba(245,158,11,.22)}
+.eventFolderStatus.reconnect{background:rgba(220,38,38,.22);border-color:rgba(248,113,113,.88);color:#fff}
+.eventFolderStatus.reconnect .eventFolderDot{background:#DC2626;box-shadow:0 0 0 3px rgba(220,38,38,.24)}
 .eventFolderStatus.disconnected{background:rgba(220,38,38,.18);border-color:rgba(248,113,113,.72);color:#fff}
 @media (max-width:760px){.eventFolderStatus{order:3;width:100%;justify-content:center}.eventFolderText{overflow:hidden;text-overflow:ellipsis}}
 .formStack{display:flex;flex-direction:column;gap:14px;margin-top:0;}
@@ -9157,26 +9157,6 @@ return el('div', { class:'grid' }, [
     if (txt) txt.textContent = status.label;
   };
 
-  const renderEventFolderBanner = () => {
-    const status = eventFolderConnectionStatus();
-    const isReconnect = status.state === 'reconnect';
-    return el('div', { class:'globalDbWarn', style:'margin-bottom:14px' }, [
-      el('div', { style:'font-weight:950' }, [isReconnect ? 'Pasta de eventos desconectada' : 'Pasta de eventos não conectada']),
-      el('span', { class:'tiny', style:'display:block;margin-top:4px' }, [
-        isReconnect
-          ? 'O app preservou as alterações locais. Reconecte a pasta ORIZONData para voltar a ler snapshot e gravar eventos.'
-          : 'Selecione a pasta ORIZONData para salvar e sincronizar as alterações por usuário.',
-        capviewEventMode.lastStatus ? ' Status: ' + capviewEventMode.lastStatus : ''
-      ]),
-      status.detail ? el('span', { class:'tiny mono', style:'display:block;margin-top:4px' }, ['Pasta: ', status.detail]) : null,
-      el('div', { class:'row', style:'margin-top:10px;gap:8px;flex-wrap:wrap' }, [
-        button(status.actionLabel, 'primary', selectEventFolderFromAnyView),
-        activeTab !== 'consolidation' ? button('Ir para Sincronização de BD', '', goToDbSync) : null,
-        button('Usar BD JSON direto (avançado)', '', selectDbFromAnyView),
-      ].filter(Boolean))
-    ].filter(Boolean));
-  };
-
   const renderDbReconnectBanner = () => el('div', { class:'globalDbWarn', style:'margin-bottom:14px' }, [
     el('div', { style:'font-weight:950' }, ['BD JSON direto desconectado ou vínculo inválido']),
     el('span', { class:'tiny', style:'display:block;margin-top:4px' }, [
@@ -9209,9 +9189,7 @@ return el('div', { class:'grid' }, [
     else if (activeTab === 'consolidation') view = viewConsolidation();
     else view = el('div', {}, ['Aba inválida.']);
 
-    if (!sharedFolderReady()) {
-      root.appendChild(renderEventFolderBanner());
-    } else if (hasDbReconnectNeeded()) {
+    if (sharedFolderReady() && hasDbReconnectNeeded()) {
       root.appendChild(renderDbReconnectBanner());
     }
 
