@@ -3086,13 +3086,32 @@ main{padding:14px;overflow-x:hidden}
   };
   const internalActivitiesForResourceOnDate = (resourceId, dateObj, { onlyCapacity=true } = {}) => {
     const dateStr = formatDate(dateObj);
-    const rid = String(resourceId || '');
+    const rid = String(resourceId || '').trim();
+    const resource = (state.resources || []).find(r => String(r?.id || '').trim() === rid);
+    const resourceName = String(resource?.nome || '').trim().toLowerCase();
     return (state.internalActivities || []).filter((a) => {
       if (onlyCapacity && a?.contabiliza_capacidade === false) return false;
-      const allocRid = String(a?.resourceId || a?.responsavel_id || a?.responsible_id || '');
-      if (!rid || allocRid !== rid) return false;
-      const ini = String(a?.data_inicio || a?.data || '');
-      const fim = String(a?.data_fim || ini || a?.data || '');
+
+      const candidateIds = [
+        a?.resourceId, a?.resource_id,
+        a?.responsavel_id, a?.responsible_id,
+        a?.responsavelId, a?.responsibleId,
+      ].map(v => String(v || '').trim()).filter(Boolean);
+
+      const candidateNames = [
+        a?.resourceName, a?.resource_name,
+        a?.responsavel, a?.responsible,
+        a?.nome_recurso, a?.nomeResource,
+      ].map(v => String(v || '').trim().toLowerCase()).filter(Boolean);
+
+      const matchesResource = !!rid && (
+        candidateIds.includes(rid) ||
+        (!!resourceName && candidateNames.includes(resourceName))
+      );
+      if (!matchesResource) return false;
+
+      const ini = String(a?.data_inicio || a?.dataInicio || a?.start_date || a?.data || '').trim();
+      const fim = String(a?.data_fim || a?.dataFim || a?.end_date || ini || a?.data || '').trim();
       if (!ini) return false;
       return dateStr >= ini && dateStr <= fim;
     });
